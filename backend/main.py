@@ -6,7 +6,7 @@ import requests
 
 app = FastAPI(
     title="FitTrack AI API - Lev Academic Center",
-    version="1.1.0",
+    version="1.3.2",
 )
 
 app.add_middleware(
@@ -74,18 +74,12 @@ user_profiles: Dict[str, Dict[str, int]] = {
 # EXTERNAL SERVICES GATEWAY (עונה על דרישות 6, 7, 8 של הפרויקט)
 # ==============================================================================
 class ExternalServicesGateway:
-    """
-    מחלקה זו מרכזת את כל הפניות ל-API מחוץ למערכת לפי תבנית Gateway.
-    """
     OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
     OLLAMA_MODEL = "llama3"
 
     @classmethod
     def get_ai_consultation(cls, system_prompt: str) -> str:
         try:
-            # ----------------------------------------------------------------------
-            # התיקון כאן: השרת יחכה 120 שניות לתשובה מ-Docker!
-            # ----------------------------------------------------------------------
             response = requests.post(
                 cls.OLLAMA_URL,
                 json={
@@ -97,19 +91,18 @@ class ExternalServicesGateway:
             )
             
             if response.status_code == 404:
-                return "🤖 השרת מחובר ל-Docker, אך המודל 'llama3' טרם הורד! פתחי טרמינל והריצי: docker exec -it ollama ollama run llama3"
+                return "**שגיאת חיבור:**\nמודל ה-AI טרם הותקן ב-Docker. הריצי בטרמינל:\n`docker exec -it ollama ollama run llama3`"
             
             response.raise_for_status()
             return response.json().get("response", "שגיאה בפענוח התשובה מהמודל.")
             
         except requests.exceptions.ConnectionError:
-            return "שגיאה: לא ניתן להתחבר למיכל ה-Docker. אנא ודאי שהוא רץ."
+            return "**שגיאת רשת:**\nלא ניתן להתחבר למיכל ה-Docker. אנא ודאי שהוא רץ ברקע."
         except Exception as e:
-            return f"שגיאת AI כללית: {str(e)}"
+            return f"**שגיאת AI כללית:**\n{str(e)}"
 
     @classmethod
     def fetch_external_nutrition_fact(cls) -> str:
-        """פניה ל-API חיצוני להבאת עובדות (דרישה 7)"""
         try:
             res = requests.get("https://uselessfacts.jsph.pl/api/v2/facts/random", timeout=5)
             if res.status_code == 200:
@@ -119,11 +112,11 @@ class ExternalServicesGateway:
             return ""
 
 # ==============================================================================
-# QUERIES (CQRS) - שליפת נתונים
+# QUERIES & COMMANDS
 # ==============================================================================
 @app.get("/")
 def root_status() -> Dict[str, str]:
-    return {"status": "FitTrack AI API is running", "version": "1.1.0"}
+    return {"status": "FitTrack API is running", "version": "1.3.2"}
 
 @app.get("/users/nutrition-summary")
 def nutrition_summary(username: str = Query("Moriah")) -> Dict[str, Any]:
@@ -151,16 +144,12 @@ def nutrition_summary(username: str = Query("Moriah")) -> Dict[str, Any]:
             steps += event.get("steps_count", 0)
 
     sorted_weights = sorted(weight_history, key=lambda x: x.get("date", ""))
+    weight_analysis = "📊 אין מספיק נתונים לניתוח מגמות."
     if len(sorted_weights) >= 2:
         diff = round(sorted_weights[-1]["weight"] - sorted_weights[-2]["weight"], 1)
-        if diff < 0:
-            weight_analysis = f"📉 מגמת ירידה של {abs(diff)} ק\"ג!"
-        elif diff > 0:
-            weight_analysis = f"📈 עלייה של {diff} ק\"ג."
-        else:
-            weight_analysis = f"➡️ המשקל יציב על {sorted_weights[-1]['weight']} ק\"ג."
-    else:
-        weight_analysis = "📊 אין מספיק נתוני שקילה לניתוח מגמות."
+        if diff < 0: weight_analysis = f"📉 מגמת ירידה של {abs(diff)} ק\"ג!"
+        elif diff > 0: weight_analysis = f"📈 עלייה של {diff} ק\"ג."
+        else: weight_analysis = f"➡️ המשקל יציב על {sorted_weights[-1]['weight']} ק\"ג."
 
     return {
         "current_calories": max(current_calories, 0),
@@ -173,9 +162,6 @@ def nutrition_summary(username: str = Query("Moriah")) -> Dict[str, Any]:
         "weight_analysis": weight_analysis
     }
 
-# ==============================================================================
-# COMMANDS (CQRS) - שינוי מצב וכתיבת אירועים
-# ==============================================================================
 @app.post("/users/login")
 def user_login(credentials: LoginRequest) -> Dict[str, str]:
     if credentials.username in db_events and credentials.password in ["123456", "לב2026"]:
@@ -185,66 +171,51 @@ def user_login(credentials: LoginRequest) -> Dict[str, str]:
 @app.post("/users/log-meal")
 def log_meal(meal: MealCreate) -> Dict[str, str]:
     user = meal.username if meal.username in db_events else "Moriah"
-    cal, pro = meal.calories, meal.protein_g
-    
-    if cal == 0 or pro == 0:
-        n = meal.meal_name.lower()
-        if "סלמון" in n or "דג" in n: cal, pro = 500, 40
-        elif "שקשוקה" in n: cal, pro = 450, 24
-        elif "עוף" in n or "אורז" in n: cal, pro = 620, 48
-        else: cal, pro = 350, 15
-
-    db_events[user].append({"type": "meal", "meal_name": meal.meal_name, "calories": cal, "protein_g": pro})
+    db_events[user].append({"type": "meal", "meal_name": meal.meal_name, "calories": meal.calories, "protein_g": meal.protein_g})
     return {"status": "success", "message": "הארוחה נשמרה ב-Event Store"}
 
 @app.post("/users/log-weight")
 def log_weight(weight_data: WeightCreate) -> Dict[str, str]:
     user = weight_data.username if weight_data.username in db_events else "Moriah"
     db_events[user].append({"type": "weight", "weight": weight_data.weight, "date": weight_data.date})
-    return {"status": "success", "message": "המשקל עודכן ב-Event Store"}
+    return {"status": "success", "message": "המשקל עודכן"}
 
 @app.post("/users/log-workout")
 def log_workout(workout: WorkoutCreate) -> Dict[str, str]:
     user = workout.username if workout.username in db_events else "Moriah"
-    mins, w_type = workout.duration_minutes, workout.workout_type
-    
-    if "ריצה" in w_type: burned = mins * 11
-    elif "שחייה" in w_type: burned = mins * 9
-    elif "כוח" in w_type: burned = mins * 6
-    else: burned = mins * 8
-
-    db_events[user].append({"type": "workout", "workout_type": w_type, "duration_minutes": mins, "calories_burned": burned})
-    return {"status": "success", "message": "האימון נרשם ב-Event Store"}
+    db_events[user].append({"type": "workout", "workout_type": workout.workout_type, "duration_minutes": workout.duration_minutes, "calories_burned": workout.duration_minutes*8})
+    return {"status": "success", "message": "האימון נרשם"}
 
 @app.post("/ai/analyze-food")
 def analyze_food(request: AIMessageRequest) -> Dict[str, str]:
     user = request.username if request.username in db_events else "Moriah"
     summary_data = nutrition_summary(user)
-    
-    latest_weight = summary_data["weight_history"][-1]["weight"] if summary_data["weight_history"] else "לא ידוע"
     calories_left = summary_data["target_calories"] - summary_data["current_calories"]
     external_fact = ExternalServicesGateway.fetch_external_nutrition_fact()
 
+    # פרומפט מעודכן עם "Few-Shot" שמכריח את המודל לתבנית מדויקת ועברית טבעית
     system_prompt = f"""
-    You are a professional nutrition and fitness AI agent embedded in 'FitTrack AI'.
-    You are talking to user: {user}.
+    You are 'FitTrack AI', a highly professional and friendly Israeli fitness coach.
+    Language: ONLY Hebrew (עברית). Never use English.
+
+    The user is telling you what they ate or asking for a calorie calculation.
+    You must calculate the TOTAL calories for their specific request.
+
+    Data for context:
+    - Leftover calories before this meal: {calories_left}
+    - External fact: {external_fact}
+
+    YOU MUST FORMAT YOUR RESPONSE EXACTLY LIKE THIS TEMPLATE:
     
-    User Context (RAG Data):
-    - Current Weight: {latest_weight} kg
-    - Daily Calorie Target: {summary_data['target_calories']} kcal
-    - Calories Consumed Today: {summary_data['current_calories']} kcal
-    - Calories Remaining: {calories_left} kcal
-    - Protein Consumed Today: {summary_data['protein_g']} g
+    **[שם הארוחה שהמשתמש שאל עליה]** [אמוג'י מתאים]
+    סה"כ קלוריות מוערך: [המספר הסופי שחישבת] קק"ל.
     
-    External Fact: {external_fact}
+    שים/י לב: היתרה שלך להיום (לפני הארוחה) היא {calories_left} קלוריות.
     
-    Instructions:
-    1. Answer strictly in Hebrew.
-    2. Be professional, friendly, and direct.
-    3. Use the user context data to personalize your advice.
-    4. Keep the answer brief (2-3 short paragraphs).
-    
-    User Question: {request.message}
+    [משפט מוטיבציה קצר, חברותי וטבעי בעברית (למשל: בחירה מעולה! או: פצצה של חלבון!)]
+
+    Now, answer the user request EXACTLY in the format above:
+    User: {request.message}
     """
 
     response_text = ExternalServicesGateway.get_ai_consultation(system_prompt)

@@ -3,13 +3,13 @@ import random
 from datetime import date
 import requests
 from PySide6.QtCharts import QChart, QChartView, QPieSeries
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal
 from PySide6.QtGui import QFont, QColor, QLinearGradient, QBrush, QPainter, QPen, QPalette
 from PySide6.QtWidgets import (
     QApplication, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
     QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QFrame, QFileDialog, QScrollArea
+    QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QFrame, QFileDialog, QScrollArea, QSizePolicy
 )
 
 API_BASE_URL = "http://127.0.0.1:8000"
@@ -48,6 +48,33 @@ def play_card_fly_animation(widget: QWidget, duration: int = 500):
     
     widget.fly_anim = anim
     anim.start()
+
+
+# ==============================================================================
+# Thread חכם לניהול בקשות רשת (מונע קפיאת מסך)
+# ==============================================================================
+class AIWorker(QThread):
+    finished_signal = Signal(str)
+
+    def __init__(self, user_message: str, username: str, api_base_url: str):
+        super().__init__()
+        self.user_message = user_message
+        self.username = username
+        self.api_base_url = api_base_url
+
+    def run(self):
+        try:
+            response = requests.post(
+                f"{self.api_base_url}/ai/analyze-food",
+                json={"message": self.user_message, "username": self.username},
+                timeout=120
+            )
+            response.raise_for_status()
+            ai_response = response.json().get("response", "לא התקבלה תשובה.")
+        except Exception as error:
+            ai_response = f"שגיאה בקבלת תשובה משרת ה-AI: {error}"
+            
+        self.finished_signal.emit(ai_response)
 
 
 # ==============================================================================
@@ -423,7 +450,7 @@ class LoginView(QWidget):
         pen1.setWidth(2)
         painter.setPen(pen1)
         radius1 = 180 + (self.pulse_val * 30)
-        painter.drawEllipse(QPoint(center_x, center_y), radius1, radius1)
+        painter.drawEllipse(QPoint(int(center_x), int(center_y)), int(radius1), int(radius1))
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
@@ -749,7 +776,7 @@ class DashboardView(QWidget):
             pie_macro.slices()[0].setBrush(QColor("#06B6D4"))
 
         chart1 = QChart()
-        chart.addSeries(pie_macro) if 'chart' in locals() else chart1.addSeries(pie_macro)
+        chart1.addSeries(pie_macro)
         chart1.setTitle("הרכב מאקרו תזונתי יומי")
         chart1.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
         chart1.setBackgroundVisible(False)
@@ -827,21 +854,24 @@ class DashboardView(QWidget):
 
 
 # ==============================================================================
-# View 3: מסך צ'אט יועץ AI מתקדם (Ollama RAG Container)
+# View 3: מסך צ'אט יועץ AI מתקדם (Ollama RAG Container - משודרג עם בועות)
 # ==============================================================================
-class AIConsultantView(QWidget):
-    def __init__(self, app_controller: "FitTrackApplication") -> None:
+class AIAgentView(QWidget):
+    def __init__(self, app_controller) -> None:
         super().__init__()
         self.app_controller = app_controller
+        self.api_base_url = API_BASE_URL 
+        
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.setStyleSheet("background-color: #030712; color: #E2E8F0;")
+        self.setStyleSheet("background-color: #0A0F1D;")
         self._build_ui()
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 24, 24, 24)
-        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
 
+        # כפתור חזרה לדאשבורד
         back_button = QPushButton("⬅️ חזרה למרכז הבקרה")
         back_button.setStyleSheet("QPushButton { background-color: #1F2937; color: white; padding: 10px 16px; border: 1px solid #374151; border-radius: 6px; font-weight: bold; } QPushButton:hover { background-color: #374151; }")
         back_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -849,60 +879,145 @@ class AIConsultantView(QWidget):
         back_button.setFixedWidth(200)
         main_layout.addWidget(back_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-        title_label = QLabel("🤖 Ollama RAG Container — סוכן ייעוץ תזונה וכושר חכם")
-        title_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #FFFFFF;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        # 1. כותרת המסך
+        header = QLabel("🤖 Ollama RAG Container — סוכן ייעוץ תזונה וכושר חכם")
+        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.setStyleSheet("""
+            font-size: 22px; font-weight: bold; color: #FFFFFF; 
+            background-color: #111827; padding: 15px; 
+            border: 2px solid #38BDF8; border-radius: 10px;
+        """)
+        main_layout.addWidget(header)
 
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setStyleSheet("QTextEdit { background-color: #0B132B; color: #E2E8F0; border: 1px solid #1E293B; border-radius: 12px; padding: 16px; font-size: 14px; line-height: 24px; }")
-        self.chat_display.setHtml(
-            "<p style='color:#06B6D4; font-size:14px; text-align: right;'>"
-            "<b>FitTrack AI Agent:</b> שלום! מערכת ה-RAG עלתה בהצלחה ממיכל ה-Docker. "
-            "שאל/י אותי כל שאלה לגבי תפריטים, חלבונים או יעדי משקל, ואנתח אותם עבורך באופן מותאם אישית."
-            "</p><hr style='border-color:#1E293B;'>"
-        )
-        main_layout.addWidget(self.chat_display)
+        # 2. אזור הצ'אט (Scroll Area) הראשי
+        self.chat_scroll = QScrollArea()
+        self.chat_scroll.setWidgetResizable(True)
+        self.chat_scroll.setStyleSheet("""
+            QScrollArea { border: 1px solid #1E293B; border-radius: 10px; background-color: #030712; }
+            QScrollBar:vertical { width: 10px; background: #0B132B; }
+            QScrollBar::handle:vertical { background: #38BDF8; border-radius: 5px; }
+        """)
+        
+        self.chat_container = QWidget()
+        self.chat_container.setStyleSheet("background-color: transparent;")
+        self.chat_layout = QVBoxLayout(self.chat_container)
+        self.chat_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.chat_layout.setSpacing(15)
+        self.chat_scroll.setWidget(self.chat_container)
+        
+        main_layout.addWidget(self.chat_scroll)
 
-        input_row = QHBoxLayout()
-        input_row.setSpacing(12)
+        # הוספת הודעת פתיחה של הסוכן
+        self.add_ai_bubble("שלום! מערכת ה-RAG עלתה בהצלחה ממיכל ה-Docker. אני FitTrack AI, סוכן מותאם אישית. שאלי אותי כל שאלה לגבי תפריטים, חלבונים או יעדי משקל.")
 
-        self.message_input = QLineEdit()
-        self.message_input.setPlaceholderText("הקלד שאלה ליועץ ה-AI...")
-        self.message_input.setStyleSheet("QLineEdit { padding: 14px; border: 1px solid #1E293B; border-radius: 8px; background-color: #0B132B; color: white; font-size: 14px; text-align: right; } QLineEdit:focus { border: 1px solid #06B6D4; }")
-        self.message_input.returnPressed.connect(self.send_to_ai)
-        input_row.addWidget(self.message_input)
+        # 3. אזור הקלדת ההודעה
+        input_layout = QHBoxLayout()
+        input_layout.setSpacing(10)
 
-        send_button = QPushButton("שאל את הסוכן")
-        send_button.setStyleSheet("QPushButton { background-color: #0284C7; color: white; font-weight: bold; padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; } QPushButton:hover { background-color: #0369A1; }")
-        send_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        send_button.clicked.connect(self.send_to_ai)
-        input_row.addWidget(send_button)
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText("הקלד/י שאלה ליועץ ה-AI כאן...")
+        self.chat_input.setStyleSheet("""
+            QLineEdit {
+                padding: 15px; border: 1px solid #1E293B; border-radius: 10px;
+                background-color: #111827; color: #FFFFFF; font-size: 15px; text-align: right;
+            }
+            QLineEdit:focus { border: 2px solid #06B6D4; }
+        """)
+        self.chat_input.returnPressed.connect(self.send_message)
+        input_layout.addWidget(self.chat_input)
 
-        main_layout.addLayout(input_row)
+        self.btn_send = QPushButton("שאל את הסוכן")
+        self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_send.setStyleSheet("""
+            QPushButton {
+                background-color: #0284C7; color: white; font-weight: bold; font-size: 15px;
+                padding: 15px 25px; border: 1px solid #38BDF8; border-radius: 10px;
+            }
+            QPushButton:hover { background-color: #0369A1; }
+            QPushButton:disabled { background-color: #374151; color: #9CA3AF; border: none; }
+        """)
+        self.btn_send.clicked.connect(self.send_message)
+        input_layout.addWidget(self.btn_send)
 
-    def send_to_ai(self) -> None:
-        user_message = self.message_input.text().strip()
-        if not user_message:
+        main_layout.addLayout(input_layout)
+
+    def add_user_bubble(self, text: str):
+        """יוצר בועת צ'אט של המשתמש (מיושרת לימין)"""
+        bubble_layout = QHBoxLayout()
+        # כופה כיוון משמאל לימין כדי לעקוף את ההיפוך של ה-RTL
+        bubble_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
+        
+        lbl = QLabel(f"👤 את/ה:\n{text}")
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet("""
+            background-color: #1E293B; color: #E2E8F0; font-size: 14px;
+            padding: 14px 18px; border-radius: 12px; border-bottom-right-radius: 0px;
+            max-width: 550px; min-height: 25px;
+        """)
+        
+        # מכניס רווח גמיש משמאל, ואת הבועה מימין
+        bubble_layout.addStretch()
+        bubble_layout.addWidget(lbl)
+        
+        self.chat_layout.addLayout(bubble_layout)
+        self._scroll_to_bottom()
+
+    def add_ai_bubble(self, text: str):
+        """יוצר בועת צ'אט של הסוכן (מיושרת לשמאל)"""
+        bubble_layout = QHBoxLayout()
+        bubble_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
+        
+        lbl = QLabel(f"🤖 FitTrack AI:\n{text}")
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.MarkdownText) # תמיכה בטקסט מודגש
+        lbl.setStyleSheet("""
+            background-color: #064E3B; color: #D1FAE5; font-size: 14px;
+            padding: 14px 18px; border: 1px solid #10B981; 
+            border-radius: 12px; border-bottom-left-radius: 0px;
+            max-width: 550px; line-height: 1.5; min-height: 25px;
+        """)
+        
+        # מכניס את הבועה משמאל, ורווח גמיש מימין
+        bubble_layout.addWidget(lbl)
+        bubble_layout.addStretch()
+        
+        self.chat_layout.addLayout(bubble_layout)
+        self._scroll_to_bottom()
+
+    def send_message(self):
+        user_text = self.chat_input.text().strip()
+        if not user_text:
             return
 
-        self.chat_display.append(f"<p style='font-size:14px; text-align: right;'><b>👤 את/ה:</b> {user_message}</p>")
-        self.message_input.clear()
+        # 1. הצגת הודעת המשתמש
+        self.add_user_bubble(user_text)
+        self.chat_input.clear()
+        
+        # 2. שינוי מצב ממשק (מניעת שליחה כפולה)
+        self.btn_send.setEnabled(False)
+        self.btn_send.setText("הסוכן חושב...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        try:
-            # ----------------------------------------------------------------------
-            # כאן ממוקם השינוי: Timeout עודכן ל-120 שניות כדי לאפשר ל-Ollama לענות!
-            # ----------------------------------------------------------------------
-            response = requests.post(f"{API_BASE_URL}/ai/analyze-food", json={"message": user_message, "username": self.app_controller.active_user}, timeout=120)
-            response.raise_for_status()
-            ai_response = response.json().get("response", "לא התקבלה תשובה.")
-        except Exception as error:
-            ai_response = f"שגיאה בקבלת תשובה משרת ה-AI: {error}"
+        # 3. הפעלת ה-Thread לבקשת הרשת (מונע קפיאת מסך)
+        username = getattr(self.app_controller, 'active_user', 'Guest')
+        self.worker = AIWorker(user_text, username, self.api_base_url)
+        self.worker.finished_signal.connect(self.on_ai_response_received)
+        self.worker.start()
 
-        formatted_response = ai_response.replace("\n", "<br>")
-        self.chat_display.append(f"<p style='color:#06B6D4; font-size:14px; text-align: right;'><b>🤖 FitTrack AI:</b> {formatted_response}</p>")
-        self.chat_display.append("<hr style='border-color:#1E293B;'>")
+    def on_ai_response_received(self, response_text: str):
+        # שחרור מצב הממשק
+        QApplication.restoreOverrideCursor()
+        self.btn_send.setEnabled(True)
+        self.btn_send.setText("שאל את הסוכן")
+        
+        # הצגת תשובת ה-AI בבועה
+        self.add_ai_bubble(response_text)
+
+    def _scroll_to_bottom(self):
+        """גולל את אזור הצ'אט למטה באופן אוטומטי כשנוספת הודעה"""
+        self.chat_scroll.verticalScrollBar().setValue(
+            self.chat_scroll.verticalScrollBar().maximum()
+        )
 
 
 # ==============================================================================
@@ -923,7 +1038,7 @@ class FitTrackApplication(QMainWindow):
 
         self.login_view = LoginView(self)
         self.dashboard_view = DashboardView(self)
-        self.ai_view = AIConsultantView(self)
+        self.ai_view = AIAgentView(self)
 
         self.stacked_widget.addWidget(self.login_view)
         self.stacked_widget.addWidget(self.dashboard_view)
