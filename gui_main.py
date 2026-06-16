@@ -891,7 +891,10 @@ class AIConsultantView(QWidget):
         self.message_input.clear()
 
         try:
-            response = requests.post(f"{API_BASE_URL}/ai/analyze-food", json={"message": user_message, "username": self.app_controller.active_user}, timeout=30)
+            # ----------------------------------------------------------------------
+            # כאן ממוקם השינוי: Timeout עודכן ל-120 שניות כדי לאפשר ל-Ollama לענות!
+            # ----------------------------------------------------------------------
+            response = requests.post(f"{API_BASE_URL}/ai/analyze-food", json={"message": user_message, "username": self.app_controller.active_user}, timeout=120)
             response.raise_for_status()
             ai_response = response.json().get("response", "לא התקבלה תשובה.")
         except Exception as error:
