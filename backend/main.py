@@ -1,12 +1,17 @@
-from typing import Any, Dict, List
-from fastapi import FastAPI, HTTPException, Query
+from typing import Dict
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+import re
+import urllib.parse
+import pyodbc  # משתמשים בספרייה הרשמית של מיקרוסופט
+from sqlalchemy import create_engine, Column, Integer, Float, NVARCHAR
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 app = FastAPI(
     title="FitTrack AI API - Lev Academic Center",
-    version="1.3.2",
+    version="2.0.0", 
 )
 
 app.add_middleware(
@@ -18,23 +23,101 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# MODELS (Pydantic)
+# DATABASE SETUP (מנגנון בחירת דרייבר דינמי ועמיד לענן)
 # ==============================================================================
-class MealCreate(BaseModel):
-    meal_name: str
-    calories: int
-    protein_g: int
-    username: str
+DB_USER = "moriyakaduri_SQLLogin_1"
+DB_PASS = "8hw5dkrycj"
+DB_SERVER = "FitTrackDB.mssql.somee.com"
+DB_NAME = "FitTrackDB"
 
-class WeightCreate(BaseModel):
-    weight: float
-    date: str
-    username: str
+# סריקה אוטומטית של הדרייברים המותקנים אצלך במחשב כדי למנוע קפיאות ותקיעות
+available_drivers = pyodbc.drivers()
+best_driver = "SQL Server"  # ברירת מחדל ישנה כגיבוי אחרון
 
-class WorkoutCreate(BaseModel):
-    workout_type: str
-    duration_minutes: int
-    username: str
+# מחפשים את הדרייברים המודרניים התומכים בהצפנת TLS 1.2/1.3 של שנת 2022
+for driver in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client 11.0"]:
+    if driver in available_drivers:
+        best_driver = driver
+        break
+
+print(f"🔄 הארכיטקטורה בחרה באופן דינמי בדרייבר המאובטח: {best_driver}")
+
+# בניית מחרוזת החיבור המדויקת עם הדרייבר שנמצא ואישור אבטחת השרת (TrustServerCertificate)
+conn_str = (
+    f"Driver={{{best_driver}}};"
+    f"Server={DB_SERVER};"
+    f"Database={DB_NAME};"
+    f"UID={DB_USER};"
+    f"PWD={DB_PASS};"
+    "TrustServerCertificate=yes;"
+)
+
+# קידוד מחרוזת החיבור עבור SQLAlchemy
+quoted_conn_str = urllib.parse.quote_plus(conn_str)
+SQLALCHEMY_DATABASE_URL = f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, 
+    connect_args={"timeout": 30},  # החזרנו ל-30 שניות הגיוניות, אין צורך ב-1000
+    pool_pre_ping=True,
+    pool_recycle=1800
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ==============================================================================
+# MODELS 
+# ==============================================================================
+class NutritionFact(Base):
+    __tablename__ = "NutritionFacts"
+    id = Column(Integer, primary_key=True, index=True)
+    food_name = Column(NVARCHAR(100), unique=True, index=True)
+    calories = Column(Integer)
+    protein_g = Column(Float)
+
+class User(Base):
+    __tablename__ = "Users"
+    username = Column(NVARCHAR(50), primary_key=True, index=True)
+    password = Column(NVARCHAR(50))
+    target_calories = Column(Integer)
+    carbs_g = Column(Integer)
+    fat_g = Column(Integer)
+
+class UserEvent(Base):
+    __tablename__ = "UserEvents"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(NVARCHAR(50), index=True)
+    event_type = Column(NVARCHAR(20)) 
+    event_date = Column(NVARCHAR(50))
+    meal_name = Column(NVARCHAR(100), nullable=True)
+    calories = Column(Integer, nullable=True)
+    protein_g = Column(Integer, nullable=True)
+    weight = Column(Float, nullable=True) 
+    workout_type = Column(NVARCHAR(100), nullable=True)
+    duration_minutes = Column(Integer, nullable=True)
+    calories_burned = Column(Integer, nullable=True)
+
+class Article(Base):
+    __tablename__ = "Articles"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(NVARCHAR(200))
+    content_summary = Column(NVARCHAR(None))
+    category = Column(NVARCHAR(50))
+    url = Column(NVARCHAR(None))
+
+try:
+    print("⏳ מנסה להתחבר למסד הנתונים בענן, אנא המתיני...")
+    Base.metadata.create_all(bind=engine)
+    print("✅ החיבור למסד הנתונים הצליח והטבלאות מוכנות לעבודה!")
+except Exception as db_error:
+    print(f"❌ שגיאה בחיבור למסד הנתונים: {db_error}")
 
 class LoginRequest(BaseModel):
     username: str
@@ -45,178 +128,85 @@ class AIMessageRequest(BaseModel):
     username: str
 
 # ==============================================================================
-# EVENT STORE (In-Memory Database - עונה על דרישה 5 לעיקרון Event Sourcing)
-# ==============================================================================
-db_events: Dict[str, List[Dict[str, Any]]] = {
-    "Moriah": [
-        {"type": "meal", "meal_name": "ארוחת בוקר חלבון", "calories": 420, "protein_g": 35},
-        {"type": "weight", "weight": 75.2, "date": "2026-06-01"},
-        {"type": "weight", "weight": 74.5, "date": "2026-06-07"},
-        {"type": "workout", "workout_type": "ריצה", "duration_minutes": 40, "calories_burned": 450},
-    ],
-    "Moriya": [
-        {"type": "meal", "meal_name": "סלט טונה עשיר", "calories": 380, "protein_g": 32},
-        {"type": "weight", "weight": 68.0, "date": "2026-06-01"},
-    ],
-    "LevDeveloper": [
-        {"type": "meal", "meal_name": "חזה עוף מוקפץ", "calories": 620, "protein_g": 48},
-        {"type": "weight", "weight": 82.5, "date": "2026-06-01"},
-    ]
-}
-
-user_profiles: Dict[str, Dict[str, int]] = {
-    "Moriah": {"target_calories": 1800, "carbs_g": 180, "fat_g": 60},
-    "Moriya": {"target_calories": 2000, "carbs_g": 200, "fat_g": 65},
-    "LevDeveloper": {"target_calories": 2500, "carbs_g": 250, "fat_g": 75}
-}
-
-# ==============================================================================
-# EXTERNAL SERVICES GATEWAY (עונה על דרישות 6, 7, 8 של הפרויקט)
+# EXTERNAL SERVICES & OLLAMA
 # ==============================================================================
 class ExternalServicesGateway:
     OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-    OLLAMA_MODEL = "llama3"
+    OLLAMA_MODEL = "aminadaven/dictalm2.0-instruct:q8_0" 
 
     @classmethod
     def get_ai_consultation(cls, system_prompt: str) -> str:
         try:
             response = requests.post(
                 cls.OLLAMA_URL,
-                json={
-                    "model": cls.OLLAMA_MODEL,
-                    "prompt": system_prompt,
-                    "stream": False
-                },
-                timeout=120 
+                json={"model": cls.OLLAMA_MODEL, "prompt": system_prompt, "stream": False},
+                timeout=1000
             )
-            
-            if response.status_code == 404:
-                return "**שגיאת חיבור:**\nמודל ה-AI טרם הותקן ב-Docker. הריצי בטרמינל:\n`docker exec -it ollama ollama run llama3`"
-            
             response.raise_for_status()
-            return response.json().get("response", "שגיאה בפענוח התשובה מהמודל.")
-            
-        except requests.exceptions.ConnectionError:
-            return "**שגיאת רשת:**\nלא ניתן להתחבר למיכל ה-Docker. אנא ודאי שהוא רץ ברקע."
+            return response.json().get("response", "שגיאה בפענוח.")
         except Exception as e:
-            return f"**שגיאת AI כללית:**\n{str(e)}"
-
-    @classmethod
-    def fetch_external_nutrition_fact(cls) -> str:
-        try:
-            res = requests.get("https://uselessfacts.jsph.pl/api/v2/facts/random", timeout=5)
-            if res.status_code == 200:
-                return f"הידעת? {res.json().get('text', '')}"
-            return ""
-        except:
-            return ""
+            return f"**שגיאת חיבור ל-Ollama AI:**\n{str(e)}"
 
 # ==============================================================================
-# QUERIES & COMMANDS
+# BASE ROUTES
 # ==============================================================================
-@app.get("/")
-def root_status() -> Dict[str, str]:
-    return {"status": "FitTrack API is running", "version": "1.3.2"}
-
-@app.get("/users/nutrition-summary")
-def nutrition_summary(username: str = Query("Moriah")) -> Dict[str, Any]:
-    if username not in db_events:
-        username = "Moriah"
-
-    user_events = db_events[username]
-    profile = user_profiles.get(username, user_profiles["Moriah"])
-
-    current_calories = protein_g = steps = 0
-    meals, weight_history, workouts = [], [], []
-
-    for event in user_events:
-        e_type = event.get("type")
-        if e_type == "meal":
-            meals.append(event)
-            current_calories += event["calories"]
-            protein_g += event["protein_g"]
-        elif e_type == "weight":
-            weight_history.append(event)
-        elif e_type == "workout":
-            workouts.append(event)
-            current_calories -= event["calories_burned"]
-        elif e_type == "steps":
-            steps += event.get("steps_count", 0)
-
-    sorted_weights = sorted(weight_history, key=lambda x: x.get("date", ""))
-    weight_analysis = "📊 אין מספיק נתונים לניתוח מגמות."
-    if len(sorted_weights) >= 2:
-        diff = round(sorted_weights[-1]["weight"] - sorted_weights[-2]["weight"], 1)
-        if diff < 0: weight_analysis = f"📉 מגמת ירידה של {abs(diff)} ק\"ג!"
-        elif diff > 0: weight_analysis = f"📈 עלייה של {diff} ק\"ג."
-        else: weight_analysis = f"➡️ המשקל יציב על {sorted_weights[-1]['weight']} ק\"ג."
-
-    return {
-        "current_calories": max(current_calories, 0),
-        "target_calories": profile["target_calories"],
-        "protein_g": protein_g,
-        "carbs_g": profile["carbs_g"],
-        "fat_g": profile["fat_g"],
-        "meals": meals, "weight_history": weight_history,
-        "workouts": workouts, "steps": steps,
-        "weight_analysis": weight_analysis
-    }
-
 @app.post("/users/login")
-def user_login(credentials: LoginRequest) -> Dict[str, str]:
-    if credentials.username in db_events and credentials.password in ["123456", "לב2026"]:
-        return {"status": "success", "username": credentials.username}
+def user_login(credentials: LoginRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+    user = db.query(User).filter(User.username == credentials.username, User.password == credentials.password).first()
+    if user:
+        return {"status": "success", "username": user.username}
     raise HTTPException(status_code=400, detail="שם משתמש או סיסמה שגויים")
 
-@app.post("/users/log-meal")
-def log_meal(meal: MealCreate) -> Dict[str, str]:
-    user = meal.username if meal.username in db_events else "Moriah"
-    db_events[user].append({"type": "meal", "meal_name": meal.meal_name, "calories": meal.calories, "protein_g": meal.protein_g})
-    return {"status": "success", "message": "הארוחה נשמרה ב-Event Store"}
-
-@app.post("/users/log-weight")
-def log_weight(weight_data: WeightCreate) -> Dict[str, str]:
-    user = weight_data.username if weight_data.username in db_events else "Moriah"
-    db_events[user].append({"type": "weight", "weight": weight_data.weight, "date": weight_data.date})
-    return {"status": "success", "message": "המשקל עודכן"}
-
-@app.post("/users/log-workout")
-def log_workout(workout: WorkoutCreate) -> Dict[str, str]:
-    user = workout.username if workout.username in db_events else "Moriah"
-    db_events[user].append({"type": "workout", "workout_type": workout.workout_type, "duration_minutes": workout.duration_minutes, "calories_burned": workout.duration_minutes*8})
-    return {"status": "success", "message": "האימון נרשם"}
-
 @app.post("/ai/analyze-food")
-def analyze_food(request: AIMessageRequest) -> Dict[str, str]:
-    user = request.username if request.username in db_events else "Moriah"
-    summary_data = nutrition_summary(user)
+def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+    import queries
+    summary_data = queries.nutrition_summary(request.username, db)
     calories_left = summary_data["target_calories"] - summary_data["current_calories"]
-    external_fact = ExternalServicesGateway.fetch_external_nutrition_fact()
 
-    # פרומפט מעודכן עם "Few-Shot" שמכריח את המודל לתבנית מדויקת ועברית טבעית
+    all_articles = db.query(Article).all()
+    all_nutrition = db.query(NutritionFact).all()
+    
+    clean_message = re.sub(r'[^\w\s]', '', request.message)
+    user_words = clean_message.split()
+    
+    context = "=== מאגר מידע מקצועי מתוך האתרים ===\n"
+    
+    for art in all_articles:
+        for word in user_words:
+            if len(word) >= 3 and ((art.title and word in art.title) or (art.category and word in art.category)):
+                if art.content_summary and art.content_summary.strip() != "":
+                    context += f"מקור: {art.title} ({art.url})\nתוכן: {art.content_summary}\n\n"
+                break
+                
+    context += "=== ערכים תזונתיים מהמסד שלי ===\n"
+    for food in all_nutrition:
+        for word in user_words:
+            if len(word) >= 2 and word in food.food_name:
+                context += f"{food.food_name}: {food.calories} קלוריות, {food.protein_g} גרם חלבון.\n"
+                break
+
     system_prompt = f"""
-    You are 'FitTrack AI', a highly professional and friendly Israeli fitness coach.
-    Language: ONLY Hebrew (עברית). Never use English.
-
-    The user is telling you what they ate or asking for a calorie calculation.
-    You must calculate the TOTAL calories for their specific request.
-
-    Data for context:
-    - Leftover calories before this meal: {calories_left}
-    - External fact: {external_fact}
-
-    YOU MUST FORMAT YOUR RESPONSE EXACTLY LIKE THIS TEMPLATE:
+    אתה 'FitTrack AI', עוזר תזונה מומחה, ידידותי ומקצועי.
+    כלל קריטי 1: עליך להשיב אך ורק בעברית תקנית. אין להשתמש במילים באנגלית.
+    כלל קריטי 2: חובה לעצב את התשובה בצורה קריאה וברורה באמצעות Markdown.
     
-    **[שם הארוחה שהמשתמש שאל עליה]** [אמוג'י מתאים]
-    סה"כ קלוריות מוערך: [המספר הסופי שחישבת] קק"ל.
+    הנה מידע מהמאגר שעליך להשתמש בו כדי לענות למשתמש:
+    {context}
     
-    שים/י לב: היתרה שלך להיום (לפני הארוחה) היא {calories_left} קלוריות.
+    נתוני המשתמש:
+    למשתמש נותרו {calories_left} קלוריות לצריכה להיום.
     
-    [משפט מוטיבציה קצר, חברותי וטבעי בעברית (למשל: בחירה מעולה! או: פצצה של חלבון!)]
-
-    Now, answer the user request EXACTLY in the format above:
-    User: {request.message}
+    שאלת המשתמש: {request.message}
     """
-
+    
     response_text = ExternalServicesGateway.get_ai_consultation(system_prompt)
     return {"response": response_text}
+
+# ==============================================================================
+# IMPORT CQRS ROUTERS
+# ==============================================================================
+import commands
+import queries
+
+app.include_router(commands.router)
+app.include_router(queries.router)

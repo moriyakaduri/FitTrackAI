@@ -3,20 +3,18 @@ import random
 from datetime import date
 import requests
 from PySide6.QtCharts import QChart, QChartView, QPieSeries
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal
-from PySide6.QtGui import QFont, QColor, QLinearGradient, QBrush, QPainter, QPen, QPalette
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal, QUrl
+from PySide6.QtGui import QFont, QColor, QLinearGradient, QBrush, QPainter, QPen, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QFrame, QFileDialog, QScrollArea, QSizePolicy
+    QStackedWidget, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QFrame, QFileDialog, QScrollArea
 )
+from presenter import FitTrackPresenter
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
-# ------------------------------------------------------------------------------
-# פונקציות עזר לאנימציות ואפקטים דיגיטליים
-# ------------------------------------------------------------------------------
 def apply_neon_shadow(widget: QWidget, color_hex: str = "#000000", blur: int = 15, y_offset: int = 4):
     shadow = QGraphicsDropShadowEffect()
     shadow.setBlurRadius(blur)
@@ -28,13 +26,11 @@ def apply_neon_shadow(widget: QWidget, color_hex: str = "#000000", blur: int = 1
 def play_fade_in_animation(widget: QWidget, duration: int = 500):
     opacity_effect = QGraphicsOpacityEffect(widget)
     widget.setGraphicsEffect(opacity_effect)
-    
     anim = QPropertyAnimation(opacity_effect, b"opacity")
     anim.setDuration(duration)
     anim.setStartValue(0.0)
     anim.setEndValue(1.0)
     anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-    
     widget.fade_anim = anim
     anim.start()
 
@@ -45,14 +41,9 @@ def play_card_fly_animation(widget: QWidget, duration: int = 500):
     anim.setStartValue(QPoint(widget.x(), widget.y() + 60))
     anim.setEndValue(current_pos)
     anim.setEasingCurve(QEasingCurve.Type.OutBack)
-    
     widget.fly_anim = anim
     anim.start()
 
-
-# ==============================================================================
-# Thread חכם לניהול בקשות רשת (מונע קפיאת מסך)
-# ==============================================================================
 class AIWorker(QThread):
     finished_signal = Signal(str)
 
@@ -67,19 +58,17 @@ class AIWorker(QThread):
             response = requests.post(
                 f"{self.api_base_url}/ai/analyze-food",
                 json={"message": self.user_message, "username": self.username},
-                timeout=120
+                timeout=1000
             )
             response.raise_for_status()
             ai_response = response.json().get("response", "לא התקבלה תשובה.")
+        except requests.exceptions.Timeout:
+            ai_response = "שגיאה: לשרת ה-AI לקח יותר מדי זמן לענות (Timeout)."
         except Exception as error:
             ai_response = f"שגיאה בקבלת תשובה משרת ה-AI: {error}"
             
         self.finished_signal.emit(ai_response)
 
-
-# ==============================================================================
-# חלונית 1: חלון השראת ספורט ומוטיבציה דיגיטלית (קבוע ויציב)
-# ==============================================================================
 class MotivationWindow(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -94,7 +83,7 @@ class MotivationWindow(QWidget):
         layout.setContentsMargins(25, 30, 25, 25)
         layout.setSpacing(20)
         
-        header = QLabel("🌟 השראת ספורט וכושר יומית")
+        header = QLabel(" השראת ספורט וכושר יומית")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 20px; font-weight: bold; color: #38BDF8; border: none;")
         layout.addWidget(header)
@@ -114,7 +103,7 @@ class MotivationWindow(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
         
-        self.btn_refresh = QPushButton("🔄 הגרל משפט נוסף")
+        self.btn_refresh = QPushButton(" הגרל משפט נוסף")
         self.btn_refresh.setStyleSheet("""
             QPushButton { background-color: #0284C7; color: white; font-weight: bold; padding: 10px; border-radius: 6px; border: 1px solid #38BDF8; }
             QPushButton:hover { background-color: #0369A1; }
@@ -133,13 +122,9 @@ class MotivationWindow(QWidget):
         btn_layout.addWidget(self.btn_close)
         
         layout.addLayout(btn_layout)
-        
         self.quotes = [
-            "💪 'ההבדל בין הבלתי אפשרי לאפשרי שוכן בנחישות של האדם.' — קריסטופר ריב",
-            "🏃‍♂️ 'אל תספרו את הימים, גרמו לימים נספרים.' — מוחמד עלי",
-            "🥗 'הגוף שלך מסוגל לעמוד כמעט בהכל. המוח הוא זה שאתה צריך לשכנע.'",
-            "⚡ 'הצלחה היא לא מקרית. היא עבודה קשה, התמדה, למידה והקרבה!'",
-            "🧗‍♀️ 'אין קיצורי דרך למקומות ששווה להגיע אליהם.' — בוורלי סילס"
+            " 'ההבדל בין הבלתי אפשרי לאפשרי שוכן בנחישות של האדם.' — קריסטופר ריב",
+            " 'אל תספרו את הימים, גרמו לימים נספרים.' — מוחמד עלי"
         ]
         self.generate_random_quote()
 
@@ -147,10 +132,6 @@ class MotivationWindow(QWidget):
         self.lbl_quote.setText(random.choice(self.quotes))
         play_fade_in_animation(self.lbl_quote, 400)
 
-
-# ==============================================================================
-# חלונית 2: מרכז ניהול והזנת נתונים
-# ==============================================================================
 class DataEntryWindow(QWidget):
     def __init__(self, dashboard_view: "DashboardView") -> None:
         super().__init__()
@@ -166,7 +147,7 @@ class DataEntryWindow(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(16)
 
-        header = QLabel("📊 מרכז ניהול והזנת נתונים")
+        header = QLabel(" מרכז ניהול והזנת נתונים")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 22px; font-weight: bold; color: #06B6D4; border: none; padding-bottom: 5px;")
         layout.addWidget(header)
@@ -186,7 +167,7 @@ class DataEntryWindow(QWidget):
         nut_layout = QVBoxLayout(nutrition_group)
         nut_layout.setSpacing(10)
 
-        self.btn_camera_ai = QPushButton("📸 צלם / העלה תמונת ארוחה לניתוח AI אוטומטי")
+        self.btn_camera_ai = QPushButton(" צלם / העלה תמונת ארוחה לניתוח AI אוטומטי")
         self.btn_camera_ai.setStyleSheet("""
             QPushButton { background-color: #0F172A; color: #38BDF8; font-weight: bold; padding: 12px; border: 1px solid #06B6D4; border-radius: 8px; }
             QPushButton:hover { background-color: #1E293B; }
@@ -194,6 +175,15 @@ class DataEntryWindow(QWidget):
         self.btn_camera_ai.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_camera_ai.clicked.connect(self.simulate_camera_ai_analysis)
         nut_layout.addWidget(self.btn_camera_ai)
+        
+        self.btn_open_calculator = QPushButton(" פתח מחשבון קלוריות מתקדם (Ziv Zafrani)")
+        self.btn_open_calculator.setStyleSheet("""
+            QPushButton { background-color: #F59E0B; color: #FFFFFF; font-weight: bold; padding: 12px; border: none; border-radius: 8px; font-size: 14px; }
+            QPushButton:hover { background-color: #D97706; }
+        """)
+        self.btn_open_calculator.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_open_calculator.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://zivzafrani.co.il/calorie-calculator/")))
+        nut_layout.addWidget(self.btn_open_calculator)
 
         nut_layout.addWidget(QLabel("שם המאכל / ארוחה:", styleSheet=label_style))
         self.meal_name_input = QLineEdit()
@@ -219,7 +209,7 @@ class DataEntryWindow(QWidget):
         row_macros.addLayout(v_pro)
         nut_layout.addLayout(row_macros)
 
-        self.btn_save_meal = QPushButton("💾 שמור ארוחה זו ביומן")
+        self.btn_save_meal = QPushButton(" שמור ארוחה זו ביומן")
         self.btn_save_meal.setStyleSheet("""
             QPushButton { background-color: #059669; color: #FFFFFF; font-weight: bold; padding: 12px; border: none; border-radius: 8px; font-size: 14px; }
             QPushButton:hover { background-color: #10B981; }
@@ -247,7 +237,7 @@ class DataEntryWindow(QWidget):
         self.weight_date_input.setStyleSheet(input_style)
         w_layout.addWidget(self.weight_date_input)
 
-        self.btn_save_weight = QPushButton("⚖️ עדכן מדד משקל")
+        self.btn_save_weight = QPushButton(" עדכן מדד משקל")
         self.btn_save_weight.setStyleSheet("""
             QPushButton { background-color: #2563EB; color: #FFFFFF; font-weight: bold; padding: 12px; border: none; border-radius: 8px; font-size: 14px; }
             QPushButton:hover { background-color: #3B82F6; }
@@ -274,8 +264,7 @@ class DataEntryWindow(QWidget):
         QApplication.restoreOverrideCursor()
         simulated_meals = [
             {"name": "סלמון בתנור עם פירה", "cal": "580", "pro": "42"},
-            {"name": "שקשוקה עם 2 ביצים ולחם מלא", "cal": "450", "pro": "24"},
-            {"name": "חזה עוף מוקפץ עם אורז בסמטי", "cal": "620", "pro": "48"}
+            {"name": "שקשוקה עם 2 ביצים ולחם מלא", "cal": "450", "pro": "24"}
         ]
         chosen = random.choice(simulated_meals)
         self.meal_name_input.setText(chosen["name"])
@@ -321,9 +310,6 @@ class DataEntryWindow(QWidget):
             self.weight_date_input.setText(date.today().isoformat())
 
 
-# ==============================================================================
-# חלונית 3: מסך מגמות, אנליטיקה ויומן אימונים מורחב
-# ==============================================================================
 class TrendsAndWorkoutsWindow(QWidget):
     def __init__(self, dashboard_view: "DashboardView") -> None:
         super().__init__()
@@ -339,7 +325,7 @@ class TrendsAndWorkoutsWindow(QWidget):
         layout.setContentsMargins(25, 25, 25, 25)
         layout.setSpacing(16)
 
-        header = QLabel("📉 מגמות, אנליטיקה ויומן אימונים")
+        header = QLabel(" מגמות, אנליטיקה ויומן אימונים")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("font-size: 18px; font-weight: bold; color: #06B6D4; border: none; padding-bottom: 5px;")
         layout.addWidget(header)
@@ -374,7 +360,7 @@ class TrendsAndWorkoutsWindow(QWidget):
         self.workout_duration_input.setStyleSheet(input_style)
         w_layout.addWidget(self.workout_duration_input)
 
-        self.btn_save_workout = QPushButton("🏃‍♂️ שמור אימון וסנכרן שריפת קלוריות")
+        self.btn_save_workout = QPushButton(" שמור אימון וסנכרן שריפת קלוריות")
         self.btn_save_workout.setStyleSheet("""
             QPushButton { background-color: #E11D48; color: #FFFFFF; font-weight: bold; padding: 12px; border: none; border-radius: 8px; font-size: 14px; }
             QPushButton:hover { background-color: #F43F5E; }
@@ -411,13 +397,11 @@ class TrendsAndWorkoutsWindow(QWidget):
         self.lbl_analysis_text.setText(text)
 
 
-# ==============================================================================
-# View 1: מסך התחברות יוקרתי (Premium Cyber Dark UI)
-# ==============================================================================
 class LoginView(QWidget):
-    def __init__(self, app_controller: "FitTrackApplication") -> None:
+    def __init__(self, app_controller: "FitTrackApplication", presenter: FitTrackPresenter) -> None:
         super().__init__()
         self.app_controller = app_controller
+        self.presenter = presenter
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self._build_ui()
         
@@ -428,7 +412,6 @@ class LoginView(QWidget):
         self.pulse_direction = 1
 
     def paintEvent(self, event) -> None:
-        """ציור רקע טכנולוגי עמוק התואם בדיוק לעיצוב הניאון החדש"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
@@ -442,7 +425,6 @@ class LoginView(QWidget):
         if self.pulse_val > 1.0 or self.pulse_val < 0.0:
             self.pulse_direction *= -1
 
-        # רשת הילות דינמיות זוהרות ברקע
         center_x = self.width() / 2
         center_y = self.height() / 2
         
@@ -525,34 +507,25 @@ class LoginView(QWidget):
             QMessageBox.warning(self, "שגיאה", "יש להזין שם משתמש וסיסמה.")
             return
 
-        try:
-            response = requests.post(f"{API_BASE_URL}/users/login", json={"username": username, "password": password}, timeout=10)
-        except requests.exceptions.ConnectionError:
-            QMessageBox.critical(self, "שגיאה", "שרת ה-Backend כבוי. אנא הפעילו אותו בטרמינל ונסו שוב.")
-            return
+        self.presenter.login(username, password)
 
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status") == "success":
-                self.app_controller.active_user = data.get("username", username)
-                self.password_input.clear()
-                self.app_controller.show_dashboard_view()
-                return
+    def on_login_success(self) -> None:
+        self.password_input.clear()
+        self.app_controller.show_dashboard_view()
 
-        QMessageBox.warning(self, "פרטים שגויים", "שם משתמש או סיסמה שגויים. נסו שוב.")
+    def on_login_error(self, message: str) -> None:
+        QMessageBox.warning(self, "פרטים שגויים", message)
 
     def reset_fields(self) -> None:
         self.username_input.clear()
         self.password_input.clear()
 
 
-# ==============================================================================
-# View 2: מסך בקרה מרכזי (דאשבורד כהה ומרווח הכולל אזור גלילה מובנה וגרפים מרובים)
-# ==============================================================================
 class DashboardView(QWidget):
-    def __init__(self, app_controller: "FitTrackApplication") -> None:
+    def __init__(self, app_controller: "FitTrackApplication", presenter: FitTrackPresenter) -> None:
         super().__init__()
         self.app_controller = app_controller
+        self.presenter = presenter
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setStyleSheet("background-color: #030712; color: #F8FAFC;")
         self._build_ui()
@@ -562,7 +535,6 @@ class DashboardView(QWidget):
         root_layout.setSpacing(0)
         root_layout.setContentsMargins(0, 0, 0, 0)
 
-        # סרגל ניווט צדדי (Sidebar)
         sidebar = QWidget()
         sidebar.setFixedWidth(240)
         sidebar.setStyleSheet("background-color: #0B132B; border-left: 1px solid #1E293B;")
@@ -575,7 +547,7 @@ class DashboardView(QWidget):
         sidebar_title.setStyleSheet("color: #06B6D4; font-size: 20px; font-weight: bold;")
         sidebar_layout.addWidget(sidebar_title)
 
-        self.btn_nav_data_entry = QPushButton("📊 מרכז ניהול והזנה")
+        self.btn_nav_data_entry = QPushButton(" מרכז ניהול והזנה")
         self.btn_nav_data_entry.setStyleSheet("""
             QPushButton { background-color: #0284C7; color: white; padding: 14px; border: 1px solid #38BDF8; border-radius: 8px; font-weight: bold; text-align: right; font-size: 14px; }
             QPushButton:hover { background-color: #0369A1; }
@@ -584,7 +556,7 @@ class DashboardView(QWidget):
         self.btn_nav_data_entry.clicked.connect(self.app_controller.open_data_entry_window)
         sidebar_layout.addWidget(self.btn_nav_data_entry)
 
-        self.btn_nav_trends = QPushButton("📈 מגמות ומדדי אימון")
+        self.btn_nav_trends = QPushButton(" מגמות ומדדי אימון")
         self.btn_nav_trends.setStyleSheet("""
             QPushButton { background-color: #A855F7; color: white; padding: 14px; border: 1px solid #C084FC; border-radius: 8px; font-weight: bold; text-align: right; font-size: 14px; }
             QPushButton:hover { background-color: #7E22CE; }
@@ -593,7 +565,7 @@ class DashboardView(QWidget):
         self.btn_nav_trends.clicked.connect(self.app_controller.open_trends_window)
         sidebar_layout.addWidget(self.btn_nav_trends)
 
-        ai_button = QPushButton("💬 התייעצות עם AI")
+        ai_button = QPushButton(" התייעצות עם AI")
         ai_button.setStyleSheet("""
             QPushButton { background-color: #1F2937; color: white; padding: 12px; border: 1px solid #374151; border-radius: 8px; font-weight: bold; text-align: right; }
             QPushButton:hover { background-color: #374151; }
@@ -602,7 +574,7 @@ class DashboardView(QWidget):
         ai_button.clicked.connect(self.app_controller.show_ai_view)
         sidebar_layout.addWidget(ai_button)
 
-        self.btn_open_motivation = QPushButton("🌟 השראת ספורט יומית")
+        self.btn_open_motivation = QPushButton(" השראת ספורט יומית")
         self.btn_open_motivation.setStyleSheet("""
             QPushButton { background-color: #1E1B4B; color: #E9D5FF; padding: 12px; border: 1px solid #A855F7; border-radius: 8px; font-weight: bold; text-align: right; }
             QPushButton:hover { background-color: #2E1065; }
@@ -613,15 +585,12 @@ class DashboardView(QWidget):
 
         sidebar_layout.addStretch()
 
-        logout_button = QPushButton("🚪 התנתק")
+        logout_button = QPushButton(" התנתק")
         logout_button.setStyleSheet("QPushButton { background-color: #991B1B; color: white; padding: 12px; border: none; border-radius: 8px; font-weight: bold; } QPushButton:hover { background-color: #DC2626; }")
         logout_button.setCursor(Qt.CursorShape.PointingHandCursor)
         logout_button.clicked.connect(self.handle_logout)
         sidebar_layout.addWidget(logout_button)
 
-        # ----------------------------------------------------------------------
-        # מימוש מנגנון גלילה מרכזי (QScrollArea) המונע חיתוכי מסך ומאפשר גלילה מטה
-        # ----------------------------------------------------------------------
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
@@ -637,7 +606,6 @@ class DashboardView(QWidget):
         self.welcome_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #FFFFFF;")
         content_layout.addWidget(self.welcome_label)
 
-        # כרטיסי מדדים עליונים
         self.cards_frame = QWidget()
         cards_layout = QHBoxLayout(self.cards_frame)
         cards_layout.setSpacing(16)
@@ -649,7 +617,7 @@ class DashboardView(QWidget):
         self.card_cal.setStyleSheet(card_css)
         cal_layout = QVBoxLayout(self.card_cal)
         cal_layout.setContentsMargins(14, 14, 14, 14)
-        cal_layout.addWidget(QLabel("🔥 קלוריות שנצרכו היום"), alignment=Qt.AlignmentFlag.AlignRight)
+        cal_layout.addWidget(QLabel(" קלוריות שנצרכו היום"), alignment=Qt.AlignmentFlag.AlignRight)
         self.lbl_cal_val = QLabel("0 קק\"ל")
         self.lbl_cal_val.setStyleSheet("font-size: 24px; font-weight: bold; color: #10B981; background: transparent;")
         cal_layout.addWidget(self.lbl_cal_val, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -659,7 +627,7 @@ class DashboardView(QWidget):
         self.card_pro.setStyleSheet(card_css)
         pro_layout = QVBoxLayout(self.card_pro)
         pro_layout.setContentsMargins(14, 14, 14, 14)
-        pro_layout.addWidget(QLabel("💪 חלבון יומי שנאכל"), alignment=Qt.AlignmentFlag.AlignRight)
+        pro_layout.addWidget(QLabel(" חלבון יומי שנאכל"), alignment=Qt.AlignmentFlag.AlignRight)
         self.lbl_pro_val = QLabel("0 גרם")
         self.lbl_pro_val.setStyleSheet("font-size: 24px; font-weight: bold; color: #06B6D4; background: transparent;")
         pro_layout.addWidget(self.lbl_pro_val, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -667,22 +635,17 @@ class DashboardView(QWidget):
 
         content_layout.addWidget(self.cards_frame)
 
-        # ----------------------------------------------------------------------
-        # אזור גרפים מרובים (גרף עוגה יומי + גרף יעד והתקדמות קלורי מופרד)
-        # ----------------------------------------------------------------------
         charts_box = QGroupBox("מרכז ניתוח חזותי ואנליטיקה מרובה (Queries)")
         charts_box.setStyleSheet("QGroupBox { font-weight: bold; color: #06B6D4; border: 1px solid #1E293B; border-radius: 12px; margin-top: 5px; padding-top: 16px; background-color: #0B132B; font-size: 14px; }")
         apply_neon_shadow(charts_box, "#000000", blur=15, y_offset=4)
         charts_layout = QHBoxLayout(charts_box)
         charts_layout.setSpacing(16)
 
-        # גרף 1: התפלגות אבות המזון והמאקרו
         self.chart_view_macro = QChartView()
         self.chart_view_macro.setMinimumHeight(280)
         self.chart_view_macro.setStyleSheet("background-color: transparent;")
         charts_layout.addWidget(self.chart_view_macro, stretch=1)
 
-        # גרף 2: התקדמות קלוריות מול יעד המטרה האישי
         self.chart_view_calories = QChartView()
         self.chart_view_calories.setMinimumHeight(280)
         self.chart_view_calories.setStyleSheet("background-color: transparent;")
@@ -690,9 +653,8 @@ class DashboardView(QWidget):
 
         content_layout.addWidget(charts_box)
 
-        # יומן ארוחות מסונכרן
         table_container = QVBoxLayout()
-        table_title = QLabel("📋 יומן ארוחות וסנכרון Event Store")
+        table_title = QLabel(" יומן ארוחות וסנכרון Event Store")
         table_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         table_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #94A3B8;")
         table_container.addWidget(table_title)
@@ -714,57 +676,22 @@ class DashboardView(QWidget):
         root_layout.addWidget(sidebar, stretch=1)
         root_layout.addWidget(scroll_area, stretch=4)
 
-    def update_welcome_message(self) -> None:
-        if self.welcome_label and self.app_controller.active_user:
-            self.welcome_label.setText(f"שלום, {self.app_controller.active_user}! מרכז הבקרה התזונתי שלך")
-
     def execute_remote_meal_save(self, meal_name: str, calories: int, protein_g: int) -> bool:
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/users/log-meal",
-                json={"meal_name": meal_name, "calories": calories, "protein_g": protein_g, "username": self.app_controller.active_user},
-                timeout=10,
-            )
-            response.raise_for_status()
-            self.refresh_data()
-            return True
-        except Exception as error:
-            QMessageBox.critical(self, "שגיאה", f"שמירת הארוחה נכשלה:\n{error}")
-            return False
+        return self.presenter.log_meal(meal_name, calories, protein_g)
 
     def execute_remote_weight_save(self, weight: float, weight_date: str) -> bool:
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/users/log-weight",
-                json={"weight": weight, "date": weight_date, "username": self.app_controller.active_user},
-                timeout=10,
-            )
-            response.raise_for_status()
-            self.refresh_data()
-            return True
-        except Exception as error:
-            QMessageBox.critical(self, "שגיאה", f"עדכון המשקל נכשלה:\n{error}")
-            return False
+        return self.presenter.log_weight(weight, weight_date)
 
     def execute_remote_workout_save(self, workout_type: str, duration_minutes: int) -> bool:
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/users/log-workout",
-                json={"workout_type": workout_type, "duration_minutes": duration_minutes, "username": self.app_controller.active_user},
-                timeout=10,
-            )
-            response.raise_for_status()
-            self.refresh_data()
-            return True
-        except Exception as error:
-            QMessageBox.critical(self, "שגיאה", f"רישום האימון נכשלה:\n{error}")
-            return False
+        return self.presenter.log_workout(workout_type, duration_minutes)
+
+    def show_error(self, message: str) -> None:
+        QMessageBox.critical(self, "שגיאה", message)
 
     def update_multiple_charts(self, protein_g: int, carbs_g: int, fat_g: int, current_calories: int, target_calories: int) -> None:
         if not self.chart_view_macro or not self.chart_view_calories:
             return
 
-        # גרף 1: התפלגות המאקרו-נוטריאנטים
         pie_macro = QPieSeries()
         pie_macro.append(f"חלבון: {protein_g}ג'", float(protein_g))
         pie_macro.append(f"פחמימות: {carbs_g}ג'", float(carbs_g))
@@ -785,7 +712,6 @@ class DashboardView(QWidget):
         chart1.legend().setLabelColor(QColor("#94A3B8"))
         self.chart_view_macro.setChart(chart1)
 
-        # גרף 2: צריכת קלוריות נוכחית למול היעד המטבולי
         pie_cal = QPieSeries()
         cal_consumed_normalized = max(current_calories, 0)
         cal_remaining_normalized = max(target_calories - current_calories, 0)
@@ -794,9 +720,9 @@ class DashboardView(QWidget):
         pie_cal.append(f"נותר: {cal_remaining_normalized} קק\"ל", float(cal_remaining_normalized))
         
         if len(pie_cal.slices()) > 0:
-            pie_cal.slices()[0].setBrush(QColor("#10B981"))  # ירוק לנצרך
+            pie_cal.slices()[0].setBrush(QColor("#10B981")) 
             if len(pie_cal.slices()) > 1:
-                pie_cal.slices()[1].setBrush(QColor("#1F2937"))  # כהה לנותר
+                pie_cal.slices()[1].setBrush(QColor("#1F2937")) 
 
         chart2 = QChart()
         chart2.addSeries(pie_cal)
@@ -809,16 +735,14 @@ class DashboardView(QWidget):
         self.chart_view_calories.setChart(chart2)
 
     def refresh_data(self) -> None:
-        if not self.app_controller.active_user:
+        if not self.presenter.active_user:
             return
-        self.update_welcome_message()
+            
+        if self.welcome_label:
+            self.welcome_label.setText(f"שלום, {self.presenter.active_user}! מרכז הבקרה התזונתי שלך")
 
-        try:
-            response = requests.get(f"{API_BASE_URL}/users/nutrition-summary?username={self.app_controller.active_user}", timeout=10)
-            response.raise_for_status()
-            data = response.json()
-        except Exception as error:
-            print(f"שגיאה בהתחברות ל-API: {error}")
+        data = self.presenter.fetch_dashboard_data()
+        if not data:
             return
 
         meals = data.get("meals", [])
@@ -848,14 +772,11 @@ class DashboardView(QWidget):
         )
 
     def handle_logout(self) -> None:
-        self.app_controller.active_user = None
+        self.presenter.logout()
         self.app_controller.login_view.reset_fields()
         self.app_controller.show_login_view()
 
 
-# ==============================================================================
-# View 3: מסך צ'אט יועץ AI מתקדם (Ollama RAG Container - משודרג עם בועות)
-# ==============================================================================
 class AIAgentView(QWidget):
     def __init__(self, app_controller) -> None:
         super().__init__()
@@ -871,16 +792,14 @@ class AIAgentView(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        # כפתור חזרה לדאשבורד
-        back_button = QPushButton("⬅️ חזרה למרכז הבקרה")
+        back_button = QPushButton(" חזרה למרכז הבקרה")
         back_button.setStyleSheet("QPushButton { background-color: #1F2937; color: white; padding: 10px 16px; border: 1px solid #374151; border-radius: 6px; font-weight: bold; } QPushButton:hover { background-color: #374151; }")
         back_button.setCursor(Qt.CursorShape.PointingHandCursor)
         back_button.clicked.connect(self.app_controller.show_dashboard_view)
         back_button.setFixedWidth(200)
         main_layout.addWidget(back_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-        # 1. כותרת המסך
-        header = QLabel("🤖 Ollama RAG Container — סוכן ייעוץ תזונה וכושר חכם")
+        header = QLabel(" Ollama RAG Container — סוכן ייעוץ תזונה וכושר חכם")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header.setStyleSheet("""
             font-size: 22px; font-weight: bold; color: #FFFFFF; 
@@ -889,7 +808,6 @@ class AIAgentView(QWidget):
         """)
         main_layout.addWidget(header)
 
-        # 2. אזור הצ'אט (Scroll Area) הראשי
         self.chat_scroll = QScrollArea()
         self.chat_scroll.setWidgetResizable(True)
         self.chat_scroll.setStyleSheet("""
@@ -907,10 +825,8 @@ class AIAgentView(QWidget):
         
         main_layout.addWidget(self.chat_scroll)
 
-        # הוספת הודעת פתיחה של הסוכן
         self.add_ai_bubble("שלום! מערכת ה-RAG עלתה בהצלחה ממיכל ה-Docker. אני FitTrack AI, סוכן מותאם אישית. שאלי אותי כל שאלה לגבי תפריטים, חלבונים או יעדי משקל.")
 
-        # 3. אזור הקלדת ההודעה
         input_layout = QHBoxLayout()
         input_layout.setSpacing(10)
 
@@ -942,45 +858,41 @@ class AIAgentView(QWidget):
         main_layout.addLayout(input_layout)
 
     def add_user_bubble(self, text: str):
-        """יוצר בועת צ'אט של המשתמש (מיושרת לימין)"""
         bubble_layout = QHBoxLayout()
-        # כופה כיוון משמאל לימין כדי לעקוף את ההיפוך של ה-RTL
-        bubble_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
+        bubble_layout.setDirection(QHBoxLayout.Direction.RightToLeft)
         
-        lbl = QLabel(f"👤 את/ה:\n{text}")
+        lbl = QLabel(f" את/ה:\n{text}")
         lbl.setWordWrap(True)
         lbl.setStyleSheet("""
             background-color: #1E293B; color: #E2E8F0; font-size: 14px;
-            padding: 14px 18px; border-radius: 12px; border-bottom-right-radius: 0px;
-            max-width: 550px; min-height: 25px;
+            padding: 12px; border-radius: 12px; border-bottom-right-radius: 0px;
+            max-width: 500px;
         """)
         
-        # מכניס רווח גמיש משמאל, ואת הבועה מימין
-        bubble_layout.addStretch()
+        bubble_layout.addStretch() 
         bubble_layout.addWidget(lbl)
-        
         self.chat_layout.addLayout(bubble_layout)
         self._scroll_to_bottom()
 
     def add_ai_bubble(self, text: str):
-        """יוצר בועת צ'אט של הסוכן (מיושרת לשמאל)"""
         bubble_layout = QHBoxLayout()
-        bubble_layout.setDirection(QHBoxLayout.Direction.LeftToRight)
+        bubble_layout.setDirection(QHBoxLayout.Direction.RightToLeft)
         
-        lbl = QLabel(f"🤖 FitTrack AI:\n{text}")
+        formatted_text = f"<div dir='rtl' style='text-align: right;'><b> FitTrack AI:</b><br>{text}</div>"
+        
+        lbl = QLabel(formatted_text)
         lbl.setWordWrap(True)
-        lbl.setTextFormat(Qt.TextFormat.MarkdownText) # תמיכה בטקסט מודגש
+        lbl.setTextFormat(Qt.TextFormat.RichText) 
+        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction) 
+        lbl.setOpenExternalLinks(True) 
         lbl.setStyleSheet("""
             background-color: #064E3B; color: #D1FAE5; font-size: 14px;
-            padding: 14px 18px; border: 1px solid #10B981; 
-            border-radius: 12px; border-bottom-left-radius: 0px;
-            max-width: 550px; line-height: 1.5; min-height: 25px;
+            padding: 12px; border: 1px solid #10B981; border-radius: 12px; border-bottom-left-radius: 0px;
+            max-width: 500px; line-height: 1.4;
         """)
         
-        # מכניס את הבועה משמאל, ורווח גמיש מימין
         bubble_layout.addWidget(lbl)
-        bubble_layout.addStretch()
-        
+        bubble_layout.addStretch() 
         self.chat_layout.addLayout(bubble_layout)
         self._scroll_to_bottom()
 
@@ -989,46 +901,37 @@ class AIAgentView(QWidget):
         if not user_text:
             return
 
-        # 1. הצגת הודעת המשתמש
         self.add_user_bubble(user_text)
         self.chat_input.clear()
         
-        # 2. שינוי מצב ממשק (מניעת שליחה כפולה)
         self.btn_send.setEnabled(False)
         self.btn_send.setText("הסוכן חושב...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        # 3. הפעלת ה-Thread לבקשת הרשת (מונע קפיאת מסך)
-        username = getattr(self.app_controller, 'active_user', 'Guest')
+        username = getattr(self.app_controller.presenter, 'active_user', 'Guest')
         self.worker = AIWorker(user_text, username, self.api_base_url)
         self.worker.finished_signal.connect(self.on_ai_response_received)
         self.worker.start()
 
     def on_ai_response_received(self, response_text: str):
-        # שחרור מצב הממשק
         QApplication.restoreOverrideCursor()
         self.btn_send.setEnabled(True)
         self.btn_send.setText("שאל את הסוכן")
         
-        # הצגת תשובת ה-AI בבועה
         self.add_ai_bubble(response_text)
 
     def _scroll_to_bottom(self):
-        """גולל את אזור הצ'אט למטה באופן אוטומטי כשנוספת הודעה"""
         self.chat_scroll.verticalScrollBar().setValue(
             self.chat_scroll.verticalScrollBar().maximum()
         )
 
 
-# ==============================================================================
-# Application Main Frame Controller
-# ==============================================================================
 class FitTrackApplication(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.active_user = None
-        self.setWindowTitle("FitTrack AI - Lev Academic Center")
+        self.presenter = FitTrackPresenter() 
         
+        self.setWindowTitle("FitTrack AI - Lev Academic Center")
         self.resize(1150, 800) 
         self.setMinimumSize(1024, 740)
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
@@ -1036,9 +939,11 @@ class FitTrackApplication(QMainWindow):
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
 
-        self.login_view = LoginView(self)
-        self.dashboard_view = DashboardView(self)
+        self.login_view = LoginView(self, self.presenter)
+        self.dashboard_view = DashboardView(self, self.presenter)
         self.ai_view = AIAgentView(self)
+
+        self.presenter.set_views(self.login_view, self.dashboard_view)
 
         self.stacked_widget.addWidget(self.login_view)
         self.stacked_widget.addWidget(self.dashboard_view)
