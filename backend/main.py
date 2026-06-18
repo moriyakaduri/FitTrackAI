@@ -58,7 +58,7 @@ SQLALCHEMY_DATABASE_URL = f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, 
-    connect_args={"timeout": 30},  # החזרנו ל-30 שניות הגיוניות, אין צורך ב-1000
+    connect_args={"timeout": 30},  
     pool_pre_ping=True,
     pool_recycle=1800
 )
@@ -143,9 +143,21 @@ class ExternalServicesGateway:
                 timeout=1000
             )
             response.raise_for_status()
-            return response.json().get("response", "שגיאה בפענוח.")
+            
+            # שליפה וניקוי של הטקסט כדי שיוצג מושלם ב-UI
+            raw_text = response.json().get("response", "שגיאה בפענוח.")
+            
+            # החלפת ירידות שורה של טקסט לירידות שורה של HTML
+            formatted_text = raw_text.replace("\\n", "\n").replace("\n", "<br>")
+            
+            # החלפת כוכביות של Markdown להדגשה ב-HTML
+            formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', formatted_text)
+            formatted_text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', formatted_text)
+            
+            return formatted_text
+            
         except Exception as e:
-            return f"**שגיאת חיבור ל-Ollama AI:**\n{str(e)}"
+            return f"<b>שגיאת חיבור ל-Ollama AI:</b><br>{str(e)}"
 
 # ==============================================================================
 # BASE ROUTES
@@ -185,16 +197,21 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
                 context += f"{food.food_name}: {food.calories} קלוריות, {food.protein_g} גרם חלבון.\n"
                 break
 
+    # הוספתי הנחיות קפדניות למודל לענות קצר, מתומצת ועם פסקאות
     system_prompt = f"""
-    אתה 'FitTrack AI', עוזר תזונה מומחה, ידידותי ומקצועי.
-    כלל קריטי 1: עליך להשיב אך ורק בעברית תקנית. אין להשתמש במילים באנגלית.
-    כלל קריטי 2: חובה לעצב את התשובה בצורה קריאה וברורה באמצעות Markdown.
+    אתה יועץ כושר ותזונה וירטואלי בשם 'FitTrack AI'.
+    עליך לסייע למשתמש בצורה מקצועית וידידותית.
     
-    הנה מידע מהמאגר שעליך להשתמש בו כדי לענות למשתמש:
+    הנחיות קריטיות לתשובה שלך:
+    1. ענה בעברית תקנית בלבד.
+    2. תהיה קצר ולעניין - אל תכתוב מגילות.
+    3. חלק את התשובה לפסקאות קצרות כדי שיהיה קל לקרוא (השתמש בירידות שורה).
+    4. השתמש בנקודות ציון (Bullet points) אם אתה מונה מספר פריטים.
+    
+    הנה מידע מהמאגר:
     {context}
     
-    נתוני המשתמש:
-    למשתמש נותרו {calories_left} קלוריות לצריכה להיום.
+    נתוני המשתמש: נותרו {calories_left} קלוריות לצריכה להיום.
     
     שאלת המשתמש: {request.message}
     """
