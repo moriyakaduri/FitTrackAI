@@ -44,6 +44,7 @@ def play_card_fly_animation(widget: QWidget, duration: int = 500):
     widget.fly_anim = anim
     anim.start()
 
+# --- Workers לניהול תקשורת ברקע ---
 class AIWorker(QThread):
     finished_signal = Signal(str)
 
@@ -68,6 +69,51 @@ class AIWorker(QThread):
             ai_response = f"שגיאה בקבלת תשובה משרת ה-AI: {error}"
             
         self.finished_signal.emit(ai_response)
+
+class VisionWorker(QThread):
+    finished_signal = Signal(dict)
+    error_signal = Signal(str)
+
+    def __init__(self, file_path: str, api_base_url: str):
+        super().__init__()
+        self.file_path = file_path
+        self.api_base_url = api_base_url
+
+    def run(self):
+        try:
+            with open(self.file_path, "rb") as f:
+                files = {"file": (self.file_path, f, "image/jpeg")}
+                response = requests.post(f"{self.api_base_url}/ai/analyze-image", files=files, timeout=900)
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get("status") == "success":
+                self.finished_signal.emit(data)
+            else:
+                self.error_signal.emit(data.get("message", "שגיאת שרת לא ידועה"))
+        except Exception as e:
+            self.error_signal.emit(f"שגיאת התחברות: {str(e)}")
+
+class ChatVisionWorker(QThread):
+    finished_signal = Signal(str)
+
+    def __init__(self, file_path: str, api_base_url: str):
+        super().__init__()
+        self.file_path = file_path
+        self.api_base_url = api_base_url
+
+    def run(self):
+        try:
+            with open(self.file_path, "rb") as f:
+                files = {"file": (self.file_path, f, "image/jpeg")}
+                response = requests.post(f"{self.api_base_url}/ai/chat-image", files=files, timeout=900)
+            response.raise_for_status()
+            ai_response = response.json().get("response", "לא התקבלה תשובה מהשרת.")
+        except Exception as e:
+            ai_response = f"שגיאת התחברות לראייה הממוחשבת: {str(e)}"
+        self.finished_signal.emit(ai_response)
+
 
 class MotivationWindow(QWidget):
     def __init__(self) -> None:
@@ -254,23 +300,36 @@ class DataEntryWindow(QWidget):
         layout.addWidget(self.btn_close)
 
     def simulate_camera_ai_analysis(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(self, "בחר תמונת ארוחה לצילום", "", "Images (*.png *.jpg *.jpeg)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "בחר תמונת ארוחה לניתוח", "", "Images (*.png *.jpg *.jpeg)")
         if not file_path:
             return
+            
+        self.btn_camera_ai.setText("ה-AI מנתח את התמונה, אנא המתן... ⏳")
+        self.btn_camera_ai.setEnabled(False)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QTimer.singleShot(1200, self._apply_simulated_ai_data)
+        
+        api_url = getattr(self.dashboard_view.app_controller.ai_view, 'api_base_url', "http://127.0.0.1:8000")
+        self.vision_worker = VisionWorker(file_path, api_url)
+        self.vision_worker.finished_signal.connect(self.on_vision_success)
+        self.vision_worker.error_signal.connect(self.on_vision_error)
+        self.vision_worker.start()
 
-    def _apply_simulated_ai_data(self) -> None:
+    def on_vision_success(self, data: dict) -> None:
         QApplication.restoreOverrideCursor()
-        simulated_meals = [
-            {"name": "סלמון בתנור עם פירה", "cal": "580", "pro": "42"},
-            {"name": "שקשוקה עם 2 ביצים ולחם מלא", "cal": "450", "pro": "24"}
-        ]
-        chosen = random.choice(simulated_meals)
-        self.meal_name_input.setText(chosen["name"])
-        self.meal_calories_input.setText(chosen["cal"])
-        self.meal_protein_input.setText(chosen["pro"])
-        QMessageBox.information(self, "AI זיהוי", f"ה-AI זיהה בתמונה: '{chosen['name']}'!\nהערכים עודכנו בשדות.")
+        self.btn_camera_ai.setText(" צלם / העלה תמונת ארוחה לניתוח AI אוטומטי")
+        self.btn_camera_ai.setEnabled(True)
+        
+        self.meal_name_input.setText(data.get("name", "לא זוהה"))
+        self.meal_calories_input.setText(data.get("calories", "0"))
+        self.meal_protein_input.setText(data.get("protein", "0"))
+        
+        QMessageBox.information(self, "זיהוי AI הושלם", f"ה-AI מצא: {data.get('name')}\nאנא ודא שהנתונים הגיוניים לפני השמירה.")
+
+    def on_vision_error(self, error_message: str) -> None:
+        QApplication.restoreOverrideCursor()
+        self.btn_camera_ai.setText(" צלם / העלה תמונת ארוחה לניתוח AI אוטומטי")
+        self.btn_camera_ai.setEnabled(True)
+        QMessageBox.warning(self, "שגיאת זיהוי", f"ה-AI לא הצליח לנתח את התמונה:\n{error_message}")
 
     def trigger_meal_save(self) -> None:
         meal_name = self.meal_name_input.text().strip()
@@ -825,10 +884,23 @@ class AIAgentView(QWidget):
         
         main_layout.addWidget(self.chat_scroll)
 
-        self.add_ai_bubble("שלום! מערכת ה-RAG עלתה בהצלחה ממיכל ה-Docker. אני FitTrack AI, סוכן מותאם אישית. שאלי אותי כל שאלה לגבי תפריטים, חלבונים או יעדי משקל.")
+        self.add_ai_bubble("שלום! מערכת ה-RAG עלתה בהצלחה. אני FitTrack AI. את יכולה לשאול אותי שאלות רגילות, או ללחוץ על '📷 תמונה' כדי שאזהה עבורך מנות וארוחות!")
 
         input_layout = QHBoxLayout()
         input_layout.setSpacing(10)
+
+        self.btn_upload = QPushButton("📷 תמונה")
+        self.btn_upload.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_upload.setStyleSheet("""
+            QPushButton {
+                background-color: #4F46E5; color: white; font-weight: bold; font-size: 15px;
+                padding: 15px 15px; border: none; border-radius: 10px;
+            }
+            QPushButton:hover { background-color: #4338CA; }
+            QPushButton:disabled { background-color: #374151; color: #9CA3AF; }
+        """)
+        self.btn_upload.clicked.connect(self.upload_chat_image)
+        input_layout.addWidget(self.btn_upload)
 
         self.chat_input = QLineEdit()
         self.chat_input.setPlaceholderText("הקלד/י שאלה ליועץ ה-AI כאן...")
@@ -905,6 +977,7 @@ class AIAgentView(QWidget):
         self.chat_input.clear()
         
         self.btn_send.setEnabled(False)
+        self.btn_upload.setEnabled(False)
         self.btn_send.setText("הסוכן חושב...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
@@ -913,11 +986,28 @@ class AIAgentView(QWidget):
         self.worker.finished_signal.connect(self.on_ai_response_received)
         self.worker.start()
 
+    def upload_chat_image(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "בחר תמונת ארוחה", "", "Images (*.png *.jpg *.jpeg)")
+        if not file_path:
+            return
+
+        file_name = file_path.split("/")[-1]
+        self.add_user_bubble(f"📸 שלחתי תמונה לבדיקה: {file_name}")
+        
+        self.btn_send.setEnabled(False)
+        self.btn_upload.setEnabled(False)
+        self.btn_send.setText("מנתח תמונה...")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        self.chat_vision_worker = ChatVisionWorker(file_path, self.api_base_url)
+        self.chat_vision_worker.finished_signal.connect(self.on_ai_response_received)
+        self.chat_vision_worker.start()
+
     def on_ai_response_received(self, response_text: str):
         QApplication.restoreOverrideCursor()
         self.btn_send.setEnabled(True)
+        self.btn_upload.setEnabled(True)
         self.btn_send.setText("שאל את הסוכן")
-        
         self.add_ai_bubble(response_text)
 
     def _scroll_to_bottom(self):

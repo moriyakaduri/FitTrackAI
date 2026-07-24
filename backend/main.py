@@ -1,5 +1,5 @@
+from fastapi import FastAPI, HTTPException, Depends, File, UploadFile, Form
 from typing import Dict
-from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
@@ -8,6 +8,15 @@ import urllib.parse
 import pyodbc  # משתמשים בספרייה הרשמית של מיקרוסופט
 from sqlalchemy import create_engine, Column, Integer, Float, NVARCHAR
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+import base64
+import json
+import os
+from PIL import Image
+import io
+
+# --- חובה לשלשות: ייבוא Cloudinary ---
+import cloudinary
+import cloudinary.uploader
 
 app = FastAPI(
     title="FitTrack AI API - Lev Academic Center",
@@ -23,18 +32,26 @@ app.add_middleware(
 )
 
 # ==============================================================================
-# DATABASE SETUP (מנגנון בחירת דרייבר דינמי ועמיד לענן)
+# CLOUDINARY SETUP
+# ==============================================================================
+cloudinary.config(
+    cloud_name="YOUR_CLOUD_NAME",
+    api_key="YOUR_API_KEY",
+    api_secret="YOUR_API_SECRET",
+    secure=True
+)
+
+# ==============================================================================
+# DATABASE SETUP
 # ==============================================================================
 DB_USER = "moriyakaduri_SQLLogin_1"
 DB_PASS = "8hw5dkrycj"
 DB_SERVER = "FitTrackDB.mssql.somee.com"
 DB_NAME = "FitTrackDB"
 
-# סריקה אוטומטית של הדרייברים המותקנים אצלך במחשב כדי למנוע קפיאות ותקיעות
 available_drivers = pyodbc.drivers()
-best_driver = "SQL Server"  # ברירת מחדל ישנה כגיבוי אחרון
+best_driver = "SQL Server" 
 
-# מחפשים את הדרייברים המודרניים התומכים בהצפנת TLS 1.2/1.3 של שנת 2022
 for driver in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client 11.0"]:
     if driver in available_drivers:
         best_driver = driver
@@ -42,7 +59,6 @@ for driver in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server",
 
 print(f"🔄 הארכיטקטורה בחרה באופן דינמי בדרייבר המאובטח: {best_driver}")
 
-# בניית מחרוזת החיבור המדויקת עם הדרייבר שנמצא ואישור אבטחת השרת (TrustServerCertificate)
 conn_str = (
     f"Driver={{{best_driver}}};"
     f"Server={DB_SERVER};"
@@ -52,13 +68,12 @@ conn_str = (
     "TrustServerCertificate=yes;"
 )
 
-# קידוד מחרוזת החיבור עבור SQLAlchemy
 quoted_conn_str = urllib.parse.quote_plus(conn_str)
 SQLALCHEMY_DATABASE_URL = f"mssql+pyodbc:///?odbc_connect={quoted_conn_str}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, 
-    connect_args={"timeout": 30},  
+    connect_args={"timeout": 60},  
     pool_pre_ping=True,
     pool_recycle=1800
 )
@@ -128,29 +143,48 @@ class AIMessageRequest(BaseModel):
     username: str
 
 # ==============================================================================
-# EXTERNAL SERVICES & OLLAMA
+# EXTERNAL SERVICES, GATEWAY & OLLAMA 
 # ==============================================================================
 class ExternalServicesGateway:
     OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
     OLLAMA_MODEL = "aminadaven/dictalm2.0-instruct:q8_0" 
+    
+    @classmethod
+    def get_external_nutrition_data(cls, barcode: str) -> dict:
+        try:
+            url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 1:
+                    product = data.get('product', {})
+                    nutriments = product.get('nutriments', {})
+                    return {
+                        "name": product.get('product_name_he') or product.get('product_name', 'Unknown'),
+                        "calories": nutriments.get('energy-kcal_100g', 0),
+                        "protein": nutriments.get('proteins_100g', 0)
+                    }
+        except Exception as e:
+            print(f"External API Error: {e}")
+        return None
 
     @classmethod
     def get_ai_consultation(cls, system_prompt: str) -> str:
         try:
             response = requests.post(
                 cls.OLLAMA_URL,
-                json={"model": cls.OLLAMA_MODEL, "prompt": system_prompt, "stream": False},
+                json={
+                    "model": cls.OLLAMA_MODEL, 
+                    "prompt": system_prompt, 
+                    "stream": False,
+                    "options": {"temperature": 0.0} 
+                },
                 timeout=1000
             )
             response.raise_for_status()
             
-            # שליפה וניקוי של הטקסט כדי שיוצג מושלם ב-UI
             raw_text = response.json().get("response", "שגיאה בפענוח.")
-            
-            # החלפת ירידות שורה של טקסט לירידות שורה של HTML
             formatted_text = raw_text.replace("\\n", "\n").replace("\n", "<br>")
-            
-            # החלפת כוכביות של Markdown להדגשה ב-HTML
             formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', formatted_text)
             formatted_text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', formatted_text)
             
@@ -175,29 +209,33 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
     summary_data = queries.nutrition_summary(request.username, db)
     calories_left = summary_data["target_calories"] - summary_data["current_calories"]
 
-    all_articles = db.query(Article).all()
-    all_nutrition = db.query(NutritionFact).all()
-    
     clean_message = re.sub(r'[^\w\s]', '', request.message)
     user_words = clean_message.split()
     
-    context = "=== מאגר מידע מקצועי מתוך האתרים ===\n"
+    context = "=== מאגר מידע מקצועי מתוך האתרים (RAG) ===\n"
     
+    art_count = 0
+    all_articles = db.query(Article).all()
     for art in all_articles:
+        if art_count >= 2: break
         for word in user_words:
             if len(word) >= 3 and ((art.title and word in art.title) or (art.category and word in art.category)):
                 if art.content_summary and art.content_summary.strip() != "":
-                    context += f"מקור: {art.title} ({art.url})\nתוכן: {art.content_summary}\n\n"
+                    context += f"מקור: {art.title} ({art.url})\nתוכן: {art.content_summary[:300]}...\n\n"
+                    art_count += 1
                 break
                 
     context += "=== ערכים תזונתיים מהמסד שלי ===\n"
+    nut_count = 0
+    all_nutrition = db.query(NutritionFact).all()
     for food in all_nutrition:
+        if nut_count >= 5: break
         for word in user_words:
             if len(word) >= 2 and word in food.food_name:
                 context += f"{food.food_name}: {food.calories} קלוריות, {food.protein_g} גרם חלבון.\n"
+                nut_count += 1
                 break
 
-    # הוספתי הנחיות קפדניות למודל לענות קצר, מתומצת ועם פסקאות
     system_prompt = f"""
     אתה יועץ כושר ותזונה וירטואלי בשם 'FitTrack AI'.
     עליך לסייע למשתמש בצורה מקצועית וידידותית.
@@ -220,8 +258,172 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
     return {"response": response_text}
 
 # ==============================================================================
-# IMPORT CQRS ROUTERS
+# VISION ROUTES
 # ==============================================================================
+def compress_image_for_ai(contents: bytes) -> str:
+    """פונקציית עזר לכיווץ התמונה לפני שליחה ל-AI כדי לחסוך בזיכרון וזמן"""
+    try:
+        image = Image.open(io.BytesIO(contents))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        image.thumbnail((400, 400))
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG", quality=70)
+        return base64.b64encode(buffered.getvalue()).decode("utf-8")
+    except Exception as e:
+        print(f"Error compressing image: {e}")
+        return base64.b64encode(contents).decode("utf-8")
+
+@app.post("/ai/analyze-image")
+async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
+    try:
+        contents = await file.read()
+        
+        try:
+            upload_result = cloudinary.uploader.upload(contents, folder="fittrack_food")
+            print(f"✅ תמונה הועלתה ל-Cloudinary")
+        except Exception as cloud_err:
+            print(f"❌ שגיאה בהעלאה ל-Cloudinary: {cloud_err}")
+
+        img_base64 = compress_image_for_ai(contents)
+
+        vision_prompt = """
+        Analyze this food image meticulously.
+        List ALL visible components: proteins, carbs, fats, and vegetables.
+        Return the result STRICTLY in this JSON format based on your analysis:
+        {"name": "Food Name in Hebrew", "calories": 500, "protein": 30}
+        Do not include any explanations, markdown or other text. ONLY JSON.
+        """
+
+        response = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={
+                "model": "llava",  # חזרנו למודל היציב והמהיר שעובד
+                "prompt": vision_prompt, 
+                "stream": False, 
+                "images": [img_base64],
+                "options": {"temperature": 0.0}
+            },
+            timeout=300 
+        )
+        response.raise_for_status()
+
+        ai_text = response.json().get("response", "{}")
+        ai_text = ai_text.replace("```json", "").replace("```", "").strip()
+
+        try:
+            result = json.loads(ai_text)
+            return {"status": "success", "name": result.get("name", "לא זוהה"), "calories": str(result.get("calories", 0)), "protein": str(result.get("protein", 0))}
+        except json.JSONDecodeError:
+            return {"status": "error", "message": "ה-AI לא הצליח לנתח את הערכים."}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/ai/chat-image")
+async def chat_image_route(file: UploadFile = File(...), prompt: str = Form("אנא נתח את המאכל שבתמונה"), db: Session = Depends(get_db)):
+    try:
+        contents = await file.read()
+        
+        try:
+            cloudinary.uploader.upload(contents, folder="fittrack_chat")
+        except Exception as e:
+            print("Cloudinary upload skipped in chat")
+
+        img_base64 = compress_image_for_ai(contents)
+
+        # ---------------------------------------------------------
+        # RAG קליל וממוקד למניעת עומס
+        # ---------------------------------------------------------
+        clean_message = re.sub(r'[^\w\s]', '', prompt)
+        user_words = clean_message.split()
+        
+        db_context = "=== נתונים תזונתיים רלוונטיים ממסד הנתונים ===\n"
+        nut_count = 0
+        all_nutrition = db.query(NutritionFact).all()
+        for food in all_nutrition:
+            if nut_count >= 5: break
+            for word in user_words:
+                if len(word) >= 2 and word in food.food_name:
+                    db_context += f"{food.food_name}: {food.calories} קלוריות, {food.protein_g} גרם חלבון.\n"
+                    nut_count += 1
+                    break
+
+        # ---------------------------------------------------------
+        # שלב 1: מודל הראייה מנתח את התמונה באנגלית (חוקים קשיחים!)
+        # ---------------------------------------------------------
+        vision_prompt_english = f"""
+        Analyze this food image strictly and objectively. The user asked: "{prompt}".
+        
+        CRITICAL RULES:
+        1. List ONLY ingredients that are visibly present. Do not guess hidden ingredients or hallucinate.
+        2. If it is a simple vegetable salad, list only the basic vegetables seen (e.g., tomatoes, cucumbers).
+        3. Estimate the total weight of the dish in grams.
+        4. Estimate the MACROS for the ENTIRE dish (Total Protein, Total Carbs, Total Fat). 
+        Return a concise factual summary in English. Provide only realistic numbers for the whole dish.
+        """
+
+        vision_response = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={
+                "model": "llava",  # חזרנו למודל היציב והמהיר שעובד
+                "prompt": vision_prompt_english, 
+                "stream": False, 
+                "images": [img_base64],
+                "options": {"temperature": 0.0} 
+            },
+            timeout=900
+        )
+        vision_response.raise_for_status()
+        english_analysis = vision_response.json().get("response", "")
+
+        # ---------------------------------------------------------
+        # שלב 2: מודל השפה העברי מייצר פלט מובנה ומוחלט (בלי טווחים)
+        # ---------------------------------------------------------
+        translation_prompt = f"""
+        אתה יועץ תזונה מקצועי במערכת FitTrack AI.
+        המשתמש העלה תמונה של אוכל וביקש: "{prompt}".
+        מערכת הראייה סרקה והחזירה את המידע הבא:
+        {english_analysis}
+        
+        נתוני RAG מהמערכת:
+        {db_context}
+        
+        הנחיות חובה לכתיבת התשובה:
+        1. ציין בעברית את רכיבי המזון המזוהים בלבד. אל תמציא רכיבים שלא הגיוני שיהיו שם.
+        2. הצג חישוב משוער עבור *כל המנה*. אתה חייב להשתמש במספרים מוחלטים בלבד (ללא טווחים):
+           - חלבון: X גרם
+           - פחמימות: Y גרם
+           - שומן: Z גרם
+        3. חובה מתמטית אבסולוטית: סך הקלוריות שתרשום למנה חייב להיות שווה במדויק לנוסחה: (גרם חלבון * 4) + (גרם פחמימה * 4) + (גרם שומן * 9). חשב זאת בעצמך בזהירות!
+           - סך הכל קלוריות למנה: W קק"ל.
+        4. חובה לסיים בדיוק במשפט הבא:
+        "💡 שים/י לב: זוהי הערכה בלבד המבוססת על מראה עיניים. לנתונים מדויקים יותר, עדיף להזין את המשקלים במרכז ההזנה."
+        
+        ענה בצורה קצרה, מסודרת, ובעברית בלבד.
+        """
+
+        final_response = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={
+                "model": ExternalServicesGateway.OLLAMA_MODEL, 
+                "prompt": translation_prompt, 
+                "stream": False,
+                "options": {"temperature": 0.0}
+            },
+            timeout=900
+        )
+        final_response.raise_for_status()
+        raw_text = final_response.json().get("response", "שגיאה בפענוח עברית.")
+
+        formatted_text = raw_text.replace("\\n", "\n").replace("\n", "<br>")
+        formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', formatted_text)
+        
+        return {"response": formatted_text}
+    except Exception as e:
+        return {"response": f"שגיאה בניתוח: {str(e)}"}
+
 import commands
 import queries
 
