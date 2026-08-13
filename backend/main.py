@@ -210,7 +210,8 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
     calories_left = summary_data["target_calories"] - summary_data["current_calories"]
 
     clean_message = re.sub(r'[^\w\s]', '', request.message)
-    user_words = clean_message.split()
+    stop_words = {"את", "של", "על", "עם", "אנא", "נתח", "המאכל", "שבתמונה", "מה", "זה", "תמונה", "כמה", "קלוריות", "יש", "במנה", "הזאת", "הזה", "אני", "רוצה"}
+    user_words = [w for w in clean_message.split() if w not in stop_words and len(w) >= 3]
     
     context = "=== מאגר מידע מקצועי מתוך האתרים (RAG) ===\n"
     
@@ -221,7 +222,7 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
         for word in user_words:
             if len(word) >= 3 and ((art.title and word in art.title) or (art.category and word in art.category)):
                 if art.content_summary and art.content_summary.strip() != "":
-                    context += f"מקור: {art.title} ({art.url})\nתוכן: {art.content_summary[:300]}...\n\n"
+                    context += f"מקור למאמר: {art.title} ({art.url})\nתוכן: {art.content_summary[:300]}...\n\n"
                     art_count += 1
                 break
                 
@@ -243,8 +244,10 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
     הנחיות קריטיות לתשובה שלך:
     1. ענה בעברית תקנית בלבד.
     2. תהיה קצר ולעניין - אל תכתוב מגילות.
-    3. חלק את התשובה לפסקאות קצרות כדי שיהיה קל לקרוא (השתמש בירידות שורה).
-    4. השתמש בנקודות ציון (Bullet points) אם אתה מונה מספר פריטים.
+    3. חלק את התשובה לפסקאות קצרות.
+    4.זיהוי מדוייק של כל האלמנטים שיש במנה מדוייק !
+    5.אל תוסיף אלמנטים שלא נמצאים בתמונה ושאתה לא מזהה בבירור  
+    6.אזכור מקורות (RAG): אם השתמשת במידע ממסד הנתונים שסופק לך, ציין זאת.
     
     הנה מידע מהמאגר:
     {context}
@@ -261,14 +264,13 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
 # VISION ROUTES
 # ==============================================================================
 def compress_image_for_ai(contents: bytes) -> str:
-    """פונקציית עזר לכיווץ התמונה לפני שליחה ל-AI כדי לחסוך בזיכרון וזמן"""
     try:
         image = Image.open(io.BytesIO(contents))
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        image.thumbnail((400, 400))
+        image.thumbnail((768, 768))
         buffered = io.BytesIO()
-        image.save(buffered, format="JPEG", quality=70)
+        image.save(buffered, format="JPEG", quality=85)
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
     except Exception as e:
         print(f"Error compressing image: {e}")
@@ -280,7 +282,7 @@ async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
         contents = await file.read()
         
         try:
-            upload_result = cloudinary.uploader.upload(contents, folder="fittrack_food")
+            cloudinary.uploader.upload(contents, folder="fittrack_food")
             print(f"✅ תמונה הועלתה ל-Cloudinary")
         except Exception as cloud_err:
             print(f"❌ שגיאה בהעלאה ל-Cloudinary: {cloud_err}")
@@ -289,8 +291,8 @@ async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
 
         vision_prompt = """
         Analyze this food image meticulously.
-        List ALL visible components: proteins, carbs, fats, and vegetables.
-        Return the result STRICTLY in this JSON format based on your analysis:
+        List ALL visible components. 
+        Return the result STRICTLY in this JSON format based on your analysis (provide absolute numbers for the whole dish, not ranges):
         {"name": "Food Name in Hebrew", "calories": 500, "protein": 30}
         Do not include any explanations, markdown or other text. ONLY JSON.
         """
@@ -298,7 +300,7 @@ async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
         response = requests.post(
             "http://127.0.0.1:11434/api/generate",
             json={
-                "model": "llava",  # חזרנו למודל היציב והמהיר שעובד
+                "model": "llava",  
                 "prompt": vision_prompt, 
                 "stream": False, 
                 "images": [img_base64],
@@ -334,12 +336,13 @@ async def chat_image_route(file: UploadFile = File(...), prompt: str = Form("א�
         img_base64 = compress_image_for_ai(contents)
 
         # ---------------------------------------------------------
-        # RAG קליל וממוקד למניעת עומס
+        # RAG קליל וממוקד למניעת עומס וסינון הזיות
         # ---------------------------------------------------------
         clean_message = re.sub(r'[^\w\s]', '', prompt)
-        user_words = clean_message.split()
+        stop_words = {"את", "של", "על", "עם", "אנא", "נתח", "המאכל", "שבתמונה", "מה", "זה", "תמונה", "כמה", "קלוריות", "יש", "במנה", "הזאת", "הזה", "אני", "רוצה"}
+        user_words = [w for w in clean_message.split() if w not in stop_words and len(w) >= 3]
         
-        db_context = "=== נתונים תזונתיים רלוונטיים ממסד הנתונים ===\n"
+        db_context = ""
         nut_count = 0
         all_nutrition = db.query(NutritionFact).all()
         for food in all_nutrition:
@@ -350,24 +353,32 @@ async def chat_image_route(file: UploadFile = File(...), prompt: str = Form("א�
                     nut_count += 1
                     break
 
+        db_context += "\n"
+        art_count = 0
+        all_articles = db.query(Article).all()
+        for art in all_articles:
+            if art_count >= 2: break
+            for word in user_words:
+                if len(word) >= 3 and ((art.title and word in art.title) or (art.category and word in art.category)):
+                    if art.content_summary and art.content_summary.strip() != "":
+                        db_context += f"מקור למאמר: {art.title} ({art.url})\nתוכן: {art.content_summary[:300]}...\n\n"
+                        art_count += 1
+                    break
+
         # ---------------------------------------------------------
-        # שלב 1: מודל הראייה מנתח את התמונה באנגלית (חוקים קשיחים!)
+        # שלב 1: מודל הראייה מנתח את התמונה באנגלית
         # ---------------------------------------------------------
         vision_prompt_english = f"""
-        Analyze this food image strictly and objectively. The user asked: "{prompt}".
-        
-        CRITICAL RULES:
-        1. List ONLY ingredients that are visibly present. Do not guess hidden ingredients or hallucinate.
-        2. If it is a simple vegetable salad, list only the basic vegetables seen (e.g., tomatoes, cucumbers).
-        3. Estimate the total weight of the dish in grams.
-        4. Estimate the MACROS for the ENTIRE dish (Total Protein, Total Carbs, Total Fat). 
-        Return a concise factual summary in English. Provide only realistic numbers for the whole dish.
+        Analyze this food image strictly. The user asked: "{prompt}".
+        1. List the visible ingredients.
+        2. Give absolute numbers (NO RANGES) for the ENTIRE dish weight, protein (g), carbs (g), and fat (g).
+        Return a concise factual summary in English.
         """
 
         vision_response = requests.post(
             "http://127.0.0.1:11434/api/generate",
             json={
-                "model": "llava",  # חזרנו למודל היציב והמהיר שעובד
+                "model": "llava",  
                 "prompt": vision_prompt_english, 
                 "stream": False, 
                 "images": [img_base64],
@@ -379,29 +390,29 @@ async def chat_image_route(file: UploadFile = File(...), prompt: str = Form("א�
         english_analysis = vision_response.json().get("response", "")
 
         # ---------------------------------------------------------
-        # שלב 2: מודל השפה העברי מייצר פלט מובנה ומוחלט (בלי טווחים)
+        # שלב 2: מודל השפה - תבנית קשיחה בלבד (Strict Template)
         # ---------------------------------------------------------
         translation_prompt = f"""
         אתה יועץ תזונה מקצועי במערכת FitTrack AI.
-        המשתמש העלה תמונה של אוכל וביקש: "{prompt}".
+        המשתמש שאל: "{prompt}".
         מערכת הראייה סרקה והחזירה את המידע הבא:
         {english_analysis}
         
         נתוני RAG מהמערכת:
         {db_context}
         
-        הנחיות חובה לכתיבת התשובה:
-        1. ציין בעברית את רכיבי המזון המזוהים בלבד. אל תמציא רכיבים שלא הגיוני שיהיו שם.
-        2. הצג חישוב משוער עבור *כל המנה*. אתה חייב להשתמש במספרים מוחלטים בלבד (ללא טווחים):
-           - חלבון: X גרם
-           - פחמימות: Y גרם
-           - שומן: Z גרם
-        3. חובה מתמטית אבסולוטית: סך הקלוריות שתרשום למנה חייב להיות שווה במדויק לנוסחה: (גרם חלבון * 4) + (גרם פחמימה * 4) + (גרם שומן * 9). חשב זאת בעצמך בזהירות!
-           - סך הכל קלוריות למנה: W קק"ל.
-        4. חובה לסיים בדיוק במשפט הבא:
-        "💡 שים/י לב: זוהי הערכה בלבד המבוססת על מראה עיניים. לנתונים מדויקים יותר, עדיף להזין את המשקלים במרכז ההזנה."
+        חובה עליך לענות **בדיוק** בתבנית הבאה, ללא הקדמות, ללא הסברים מיותרים וללא טווחים (השתמש במספר שלם בלבד):
+
+        רכיבים שזוהו במנה: [רשום כאן את המרכיבים בשורה אחת]
         
-        ענה בצורה קצרה, מסודרת, ובעברית בלבד.
+        - חלבון: [מספר] גרם
+        - פחמימות: [מספר] גרם
+        - שומן: [מספר] גרם
+        סך הכל קלוריות למנה: [כאן תרשום את התוצאה של: חלבון*4 + פחמימות*4 + שומן*9] קק"ל
+        
+        מקורות מידע: [ציין אם השתמשת במידע מה-RAG, אם לא, השאר ריק]
+        
+        💡 שים/י לב: זוהי הערכה בלבד המבוססת על מראה עיניים. לנתונים מדויקים יותר, עדיף להזין את המשקלים במרכז ההזנה.
         """
 
         final_response = requests.post(
