@@ -1,11 +1,12 @@
 import sys
 import random
+import math
 from datetime import date
 import requests
 # ייבוא QLineSeries ו-QValueAxis בשביל גרף המשקל
 from PySide6.QtCharts import QChart, QChartView, QPieSeries, QLineSeries, QValueAxis
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal, QUrl, QPointF
-from PySide6.QtGui import QFont, QColor, QLinearGradient, QBrush, QPainter, QPen, QDesktopServices
+from PySide6.QtGui import QFont, QColor, QLinearGradient, QRadialGradient, QBrush, QPainter, QPen, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
@@ -571,98 +572,165 @@ class TrendsAndWorkoutsWindow(QWidget):
     def update_trends_text(self, text: str) -> None:
         self.lbl_analysis_text.setText(text)
 
-
+# =====================================================================
+# שיפור למסך ההתחברות - "אורות הצפון" קלאסי, יוקרתי ונקי עם שדות קריאים
+# =====================================================================
 class LoginView(QWidget):
     def __init__(self, app_controller: "FitTrackApplication", presenter: FitTrackPresenter) -> None:
         super().__init__()
         self.app_controller = app_controller
         self.presenter = presenter
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        
+        # בניית פריטי ספורט ותזונה מרחפים (עדין ולא עמוס)
+        self.floating_items = []
+        symbols = ["🏃", "🚴", "🥗", "🥑", "💪", "🍎", "🔥", "💧", "🍏", "🏋️"]
+        for _ in range(25):
+            self.floating_items.append({
+                "x": random.randint(0, 1200),
+                "y": random.randint(0, 800),
+                "symbol": random.choice(symbols),
+                "size": random.randint(24, 60),
+                "speed": random.uniform(0.3, 0.9),
+                "wobble_speed": random.uniform(0.01, 0.04),
+                "wobble_offset": random.uniform(0, 6.28)
+            })
+
+        self.time_step = 0
         self._build_ui()
         
+        # טיימר לאנימציה חלקה (כ-60 פריימים בשנייה)
         self.bg_timer = QTimer(self)
-        self.bg_timer.timeout.connect(self.update)
-        self.bg_timer.start(50)
-        self.pulse_val = 0.0
-        self.pulse_direction = 1
+        self.bg_timer.timeout.connect(self.update_background)
+        self.bg_timer.start(16)
+
+    def update_background(self):
+        """תזוזה איטית ומרגיעה של הסמלים כלפי מעלה (כמו בועות)"""
+        self.time_step += 1
+        for item in self.floating_items:
+            item["y"] -= item["speed"]
+            if item["y"] < -100:  # ברגע שזה יוצא מהמסך למעלה
+                item["y"] = self.height() + 100
+                item["x"] = random.randint(0, self.width())
+        self.update()
 
     def paintEvent(self, event) -> None:
+        """ציור הרקע העמוק והסמלים המרחפים"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        gradient = QLinearGradient(0, 0, self.width(), self.height())
-        gradient.setColorAt(0.0, QColor("#030712"))  
-        gradient.setColorAt(0.5, QColor("#0B132B"))  
-        gradient.setColorAt(1.0, QColor("#010206"))  
+        # 1. רקע גרדיאנט כחול עמוק, קלאסי ויוקרתי
+        gradient = QLinearGradient(0, 0, 0, self.height())
+        gradient.setColorAt(0.0, QColor("#040B16"))
+        gradient.setColorAt(1.0, QColor("#0A192F"))
         painter.fillRect(self.rect(), gradient)
 
-        self.pulse_val += 0.02 * self.pulse_direction
-        if self.pulse_val > 1.0 or self.pulse_val < 0.0:
-            self.pulse_direction *= -1
-
-        center_x = self.width() / 2
-        center_y = self.height() / 2
-        
-        pen1 = QPen(QColor(6, 182, 212, int(40 + (self.pulse_val * 40))))
-        pen1.setWidth(2)
-        painter.setPen(pen1)
-        radius1 = 180 + (self.pulse_val * 30)
-        painter.drawEllipse(QPoint(int(center_x), int(center_y)), int(radius1), int(radius1))
+        # 2. ציור הסמלים המרחפים בשקיפות מאוד נמוכה (כדי שלא יפריע לעיניים)
+        painter.setOpacity(0.08) # שקיפות מעולה לאפקט "מים/זכוכית" עדין
+        for item in self.floating_items:
+            # הגדרת פונט שתומך באימוג'ים יפה
+            font = QFont("Segoe UI Emoji", item["size"])
+            painter.setFont(font)
+            # חישוב תנועה לצדדים בעזרת סינוס
+            x_wobble = item["x"] + math.sin(self.time_step * item["wobble_speed"] + item["wobble_offset"]) * 20
+            painter.drawText(QPointF(x_wobble, item["y"]), item["symbol"])
+            
+        painter.setOpacity(1.0) # החזרת שקיפות רגילה לשאר המסך
 
     def _build_ui(self) -> None:
         main_layout = QVBoxLayout(self)
         main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # כרטיסיית ההתחברות (Glassmorphism מעודן)
         self.card = QFrame()
-        self.card.setMinimumSize(480, 520)
-        self.card.setMaximumSize(520, 580)
-        self.card.setStyleSheet("QFrame { background-color: rgba(11, 19, 43, 245); border: 2px solid #06B6D4; border-radius: 16px; }")
-        apply_neon_shadow(self.card, "#06B6D4", blur=40, y_offset=0)
+        self.card.setMinimumSize(460, 520)
+        self.card.setMaximumSize(500, 580)
+        self.card.setStyleSheet("""
+            QFrame { 
+                background-color: rgba(15, 23, 42, 210); /* כהה ושקוף חלקית */
+                border: 1px solid rgba(255, 255, 255, 0.1); /* מסגרת חלשה */
+                border-radius: 20px; 
+            }
+        """)
+        apply_neon_shadow(self.card, "#000000", blur=60, y_offset=15)
         
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(45, 45, 45, 45)
-        card_layout.setSpacing(20)
+        card_layout.setSpacing(25)
 
+        # כותרות קלאסיות ונקיות
         title_label = QLabel("FitTrack AI")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("font-size: 40px; font-weight: bold; color: #38BDF8; background: transparent; border: none; font-family: 'Segoe UI';")
+        title_label.setStyleSheet("""
+            font-size: 42px; 
+            font-weight: bold; 
+            color: #FFFFFF; 
+            background: transparent; 
+            border: none; 
+            font-family: 'Segoe UI';
+            letter-spacing: 2px;
+        """)
         card_layout.addWidget(title_label)
 
-        subtitle_label = QLabel("מערכת כושר ותזונה מבוזרת — המרכז האקדמי לב")
+        subtitle_label = QLabel("מערכת כושר ותזונה חכמה — המרכז האקדמי לב")
         subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle_label.setStyleSheet("font-size: 13px; color: #94A3B8; background: transparent; border: none;")
+        subtitle_label.setStyleSheet("font-size: 14px; color: #94A3B8; background: transparent; border: none;")
         card_layout.addWidget(subtitle_label)
 
         form_widget = QWidget()
         form_widget.setStyleSheet("background: transparent; border: none;")
         form_layout = QVBoxLayout(form_widget)
-        form_layout.setSpacing(12)
+        form_layout.setSpacing(15)
 
-        input_style = """
-            QLineEdit { padding: 14px; background-color: #070A14; color: #FFFFFF; border: 1px solid #1E293B; border-radius: 8px; font-size: 15px; text-align: right; }
-            QLineEdit:focus { border: 2px solid #06B6D4; background-color: #0B132B; }
+        # תיקון הצבע בשדות! הפעם בטוח ייראה לבן ובוהק
+        base_input_style = """
+            padding: 15px; 
+            background-color: rgba(255, 255, 255, 0.08); 
+            color: #FFFFFF !important; /* טקסט לבן בוהק לקריאה ברורה */
+            border: 1px solid rgba(255, 255, 255, 0.2); 
+            border-radius: 12px; 
+            font-size: 16px; 
+            font-weight: bold;
         """
-        label_style = "color: #FFFFFF; font-size: 14px; font-weight: bold; text-align: right;"
+        focus_style = """
+            border: 1px solid #38BDF8; 
+            background-color: rgba(255, 255, 255, 0.15); 
+        """
+        label_style = "color: #E2E8F0; font-size: 14px; font-weight: bold; text-align: right; padding-bottom: 2px;"
 
-        form_layout.addWidget(QLabel("שם משתמש:", styleSheet=label_style))
+        form_layout.addWidget(QLabel("שם משתמש", styleSheet=label_style))
         self.username_input = QLineEdit()
-        self.username_input.setPlaceholderText("הזן שם משתמש...")
-        self.username_input.setStyleSheet(input_style)
+        self.username_input.setPlaceholderText("הזן/י שם משתמש...")
+        self.username_input.setStyleSheet(f"QLineEdit {{ {base_input_style} text-align: right; }} QLineEdit:focus {{ {focus_style} }}")
         form_layout.addWidget(self.username_input)
 
-        form_layout.addWidget(QLabel("סיסמה:", styleSheet=label_style))
+        form_layout.addWidget(QLabel("סיסמה", styleSheet=label_style))
         self.password_input = QLineEdit()
-        self.password_input.setPlaceholderText("הזן סיסמה...")
+        self.password_input.setPlaceholderText("הזן/י סיסמה...")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setStyleSheet(input_style)
+        self.password_input.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        self.password_input.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.password_input.setStyleSheet(f"QLineEdit {{ {base_input_style} text-align: left; }} QLineEdit:focus {{ {focus_style} }}")
         form_layout.addWidget(self.password_input)
 
         card_layout.addWidget(form_widget)
 
+        # כפתור התחברות קלאסי ומודרני
         self.login_button = QPushButton("התחברות למערכת")
         self.login_button.setStyleSheet("""
-            QPushButton { background-color: #0284C7; color: white; font-weight: bold; padding: 15px; border: 1px solid #38BDF8; border-radius: 8px; font-size: 16px; }
-            QPushButton:hover { background-color: #0369A1; }
+            QPushButton { 
+                background-color: #0284C7;
+                color: #FFFFFF; 
+                font-weight: bold; 
+                padding: 16px; 
+                border: none; 
+                border-radius: 12px; 
+                font-size: 16px; 
+                letter-spacing: 1px;
+            }
+            QPushButton:hover { 
+                background-color: #0369A1;
+            }
         """)
         self.login_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.login_button.clicked.connect(self.handle_login)
@@ -672,7 +740,8 @@ class LoginView(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        play_card_fly_animation(self.card, 500)
+        # כניסה יוקרתית ואיטית מלמטה
+        play_card_fly_animation(self.card, 900)
 
     def handle_login(self) -> None:
         username = self.username_input.text().strip()
@@ -682,18 +751,25 @@ class LoginView(QWidget):
             show_styled_msgbox(self, "שגיאה", "יש להזין שם משתמש וסיסמה.", QMessageBox.Icon.Warning)
             return
 
+        self.login_button.setText("מתחבר לשרת... ⏳")
+        self.login_button.setEnabled(False)
         self.presenter.login(username, password)
 
     def on_login_success(self) -> None:
         self.password_input.clear()
+        self.login_button.setText("התחברות למערכת")
+        self.login_button.setEnabled(True)
         self.app_controller.show_dashboard_view()
 
     def on_login_error(self, message: str) -> None:
+        self.login_button.setText("התחברות למערכת")
+        self.login_button.setEnabled(True)
         show_styled_msgbox(self, "פרטים שגויים", message, QMessageBox.Icon.Warning)
 
     def reset_fields(self) -> None:
         self.username_input.clear()
         self.password_input.clear()
+# =====================================================================
 
 
 class DashboardView(QWidget):
@@ -776,9 +852,16 @@ class DashboardView(QWidget):
         content_layout.setContentsMargins(24, 24, 24, 24)
         content_layout.setSpacing(20)
 
+        # כאן התבצע השינוי של הטקסט שביקשת (אפור כחול כהה ומסודר)
         self.welcome_label = QLabel("ברוכ/ה הבא/ה!")
-        self.welcome_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.welcome_label.setStyleSheet("font-size: 26px; font-weight: bold; color: #FFFFFF;")
+        self.welcome_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.welcome_label.setStyleSheet("""
+            font-size: 28px; 
+            font-weight: 900; 
+            color: #1E293B; /* צבע אפור-כחול כהה יוקרתי */
+            background: transparent;
+            padding: 5px;
+        """)
         content_layout.addWidget(self.welcome_label)
 
         self.cards_frame = QWidget()
@@ -826,7 +909,6 @@ class DashboardView(QWidget):
         self.chart_view_calories.setStyleSheet("background-color: transparent;")
         charts_layout.addWidget(self.chart_view_calories, stretch=1)
 
-        # גרף המשקל החדש
         self.chart_view_weight = QChartView()
         self.chart_view_weight.setMinimumHeight(280)
         self.chart_view_weight.setStyleSheet("background-color: transparent;")
@@ -997,7 +1079,8 @@ class DashboardView(QWidget):
             return
             
         if self.welcome_label:
-            self.welcome_label.setText(f"שלום, {self.presenter.active_user}! מרכז הבקרה התזונתי שלך")
+            # תיקון נוסח הפתיחה והוספת האימוג'י
+            self.welcome_label.setText(f"👋 שלום {self.presenter.active_user.upper()}! ברוכה הבאה למרכז הבקרה שלך")
 
         data = self.presenter.fetch_dashboard_data()
         if not data:
