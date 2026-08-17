@@ -2,8 +2,9 @@ import sys
 import random
 from datetime import date
 import requests
-from PySide6.QtCharts import QChart, QChartView, QPieSeries
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal, QUrl
+# ייבוא QLineSeries ו-QValueAxis בשביל גרף המשקל
+from PySide6.QtCharts import QChart, QChartView, QPieSeries, QLineSeries, QValueAxis
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, QThread, Signal, QUrl, QPointF
 from PySide6.QtGui import QFont, QColor, QLinearGradient, QBrush, QPainter, QPen, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QGroupBox, QHBoxLayout, QHeaderView,
@@ -44,6 +45,37 @@ def play_card_fly_animation(widget: QWidget, duration: int = 500):
     widget.fly_anim = anim
     anim.start()
 
+def show_styled_msgbox(parent, title: str, text: str, icon: QMessageBox.Icon):
+    """פונקציית עזר ליצירת הודעות קופצות בעיצוב בהיר וקריא"""
+    msg_box = QMessageBox(parent)
+    msg_box.setWindowTitle(title)
+    msg_box.setText(text)
+    msg_box.setIcon(icon)
+    msg_box.setStyleSheet("""
+        QMessageBox {
+            background-color: #FFFFFF; 
+        }
+        QLabel {
+            color: #000000; 
+            font-size: 14px;
+            font-weight: 500;
+            background-color: transparent;
+        }
+        QPushButton {
+            background-color: #38BDF8; 
+            color: #000000;
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            border: none;
+        }
+        QPushButton:hover {
+            background-color: #0EA5E9;
+        }
+    """)
+    msg_box.exec()
+
+
 # --- Workers לניהול תקשורת ברקע ---
 class AIWorker(QThread):
     finished_signal = Signal(str)
@@ -59,7 +91,7 @@ class AIWorker(QThread):
             response = requests.post(
                 f"{self.api_base_url}/ai/analyze-food",
                 json={"message": self.user_message, "username": self.username},
-                timeout=1000
+                timeout=1200
             )
             response.raise_for_status()
             ai_response = response.json().get("response", "לא התקבלה תשובה.")
@@ -83,7 +115,7 @@ class VisionWorker(QThread):
         try:
             with open(self.file_path, "rb") as f:
                 files = {"file": (self.file_path, f, "image/jpeg")}
-                response = requests.post(f"{self.api_base_url}/ai/analyze-image", files=files, timeout=900)
+                response = requests.post(f"{self.api_base_url}/ai/analyze-image", files=files, timeout=1200)
             
             response.raise_for_status()
             data = response.json()
@@ -92,6 +124,8 @@ class VisionWorker(QThread):
                 self.finished_signal.emit(data)
             else:
                 self.error_signal.emit(data.get("message", "שגיאת שרת לא ידועה"))
+        except requests.exceptions.Timeout:
+            self.error_signal.emit("הבקשה לשרת נקטעה בגלל שלקחה יותר מדי זמן (Timeout). אנא נסי שוב.")
         except Exception as e:
             self.error_signal.emit(f"שגיאת התחברות: {str(e)}")
 
@@ -107,9 +141,11 @@ class ChatVisionWorker(QThread):
         try:
             with open(self.file_path, "rb") as f:
                 files = {"file": (self.file_path, f, "image/jpeg")}
-                response = requests.post(f"{self.api_base_url}/ai/chat-image", files=files, timeout=900)
+                response = requests.post(f"{self.api_base_url}/ai/chat-image", files=files, timeout=1200)
             response.raise_for_status()
             ai_response = response.json().get("response", "לא התקבלה תשובה מהשרת.")
+        except requests.exceptions.Timeout:
+            ai_response = "שגיאה: לשרת ה-AI לקח יותר מדי זמן לענות (Timeout)."
         except Exception as e:
             ai_response = f"שגיאת התחברות לראייה הממוחשבת: {str(e)}"
         self.finished_signal.emit(ai_response)
@@ -121,6 +157,28 @@ class MealDetailsDialog(QMessageBox):
         dialog = QMessageBox(parent)
         dialog.setWindowTitle("פרטי ארוחה — Event Store")
         dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setStyleSheet("""
+            QMessageBox {
+                background-color: #FFFFFF; 
+            }
+            QLabel {
+                color: #000000; 
+                font-size: 14px;
+                font-weight: 500;
+                background-color: transparent;
+            }
+            QPushButton {
+                background-color: #38BDF8;
+                color: #000000;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-weight: bold;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #0EA5E9;
+            }
+        """)
         dialog.setText(
             f"שם: {meal_data.get('meal_name', '')}\n"
             f"קלוריות: {meal_data.get('calories', 0)} קק\"ל\n"
@@ -186,13 +244,14 @@ class MotivationWindow(QWidget):
         layout.addLayout(btn_layout)
         self.quotes = [
             " 'ההבדל בין הבלתי אפשרי לאפשרי שוכן בנחישות של האדם.' — קריסטופר ריב",
-            " 'אל תספרו את הימים, גרמו לימים נספרים.' — מוחמד עלי"
+            " 'אל תספרו את הימים, גרמו לימים נספרים.' — מוחמד עלי",
+            " 'הכאב שאתה מרגיש היום, יהפוך לכוח שתרגיש מחר.'",
+            " 'התעמלות היא לחגוג את מה שהגוף שלך מסוגל לעשות.'"
         ]
         self.generate_random_quote()
 
     def generate_random_quote(self) -> None:
         self.lbl_quote.setText(random.choice(self.quotes))
-        play_fade_in_animation(self.lbl_quote, 400)
 
 class DataEntryWindow(QWidget):
     def __init__(self, dashboard_view: "DashboardView") -> None:
@@ -339,23 +398,26 @@ class DataEntryWindow(QWidget):
         self.btn_camera_ai.setText(" העלה תמונה לניתוח AI")
         self.btn_camera_ai.setEnabled(True)
 
-        self.meal_name_input.setText(data.get("name", "לא זוהה"))
+        self.meal_name_input.setText(str(data.get("name", "לא זוהה")))
         self.meal_calories_input.setText(str(data.get("calories", "0")))
         self.meal_protein_input.setText(str(data.get("protein", "0")))
 
-        QMessageBox.information(
+        show_styled_msgbox(
             self,
             "זיהוי הושלם",
-            "Identification complete. These are estimates, please edit/verify before saving.\n\n"
             "הזיהוי הושלם. אלו הערכות בלבד — אנא ערכ/י ואמת/י לפני השמירה.",
+            QMessageBox.Icon.Information
         )
 
     def on_vision_error(self, error_message: str) -> None:
         QApplication.restoreOverrideCursor()
         self.btn_camera_ai.setText(" העלה תמונה לניתוח AI")
         self.btn_camera_ai.setEnabled(True)
-        QMessageBox.warning(
-            self, "שגיאת זיהוי", f"ה-AI לא הצליח לנתח את התמונה:\n{error_message}"
+        show_styled_msgbox(
+            self,
+            "שגיאת זיהוי",
+            f"ה-AI לא הצליח לנתח את התמונה:\n{error_message}",
+            QMessageBox.Icon.Warning
         )
 
     def trigger_meal_save(self) -> None:
@@ -364,19 +426,19 @@ class DataEntryWindow(QWidget):
         protein_text = self.meal_protein_input.text().strip() or "0"
 
         if not meal_name:
-            QMessageBox.warning(self, "שגיאה", "שם המאכל הוא שדה חובה.")
+            show_styled_msgbox(self, "שגיאה", "שם המאכל הוא שדה חובה.", QMessageBox.Icon.Warning)
             return
 
         try:
             calories = int(calories_text)
             protein_g = int(protein_text)
         except ValueError:
-            QMessageBox.warning(self, "שגיאה", "קלוריות וחלבון חייבים להיות מספרים שלמים.")
+            show_styled_msgbox(self, "שגיאה", "קלוריות וחלבון חייבים להיות מספרים שלמים.", QMessageBox.Icon.Warning)
             return
 
         presenter = self.dashboard_view.presenter
         if not presenter.active_user:
-            QMessageBox.warning(self, "שגיאה", "אין משתמש מחובר.")
+            show_styled_msgbox(self, "שגיאה", "אין משתמש מחובר.", QMessageBox.Icon.Warning)
             return
 
         self.btn_save_meal.setEnabled(False)
@@ -396,25 +458,25 @@ class DataEntryWindow(QWidget):
         self.meal_calories_input.clear()
         self.meal_protein_input.clear()
         self.dashboard_view.refresh_data()
-        QMessageBox.information(self, "הצלחה", "הארוחה נשמרה ב-Event Store.")
+        show_styled_msgbox(self, "הצלחה", "הארוחה נשמרה ב-Event Store.", QMessageBox.Icon.Information)
 
     def on_meal_save_error(self, error_message: str) -> None:
         self.btn_save_meal.setEnabled(True)
         self.btn_save_meal.setText(" שמור ליומן (Save to Diary)")
-        QMessageBox.critical(self, "שגיאה", f"שמירת הארוחה נכשלה:\n{error_message}")
+        show_styled_msgbox(self, "שגיאה", f"שמירת הארוחה נכשלה:\n{error_message}", QMessageBox.Icon.Critical)
 
     def trigger_weight_save(self) -> None:
         weight_text = self.weight_value_input.text().strip()
         weight_date = self.weight_date_input.text().strip()
 
         if not weight_text or not weight_date:
-            QMessageBox.warning(self, "שגיאה", "יש למלא משקל ותאריך.")
+            show_styled_msgbox(self, "שגיאה", "יש למלא משקל ותאריך.", QMessageBox.Icon.Warning)
             return
 
         try:
             weight = float(weight_text)
         except ValueError:
-            QMessageBox.warning(self, "שגיאה", "משקל חייב להיות מספר.")
+            show_styled_msgbox(self, "שגיאה", "משקל חייב להיות מספר.", QMessageBox.Icon.Warning)
             return
 
         success = self.dashboard_view.execute_remote_weight_save(weight, weight_date)
@@ -493,12 +555,12 @@ class TrendsAndWorkoutsWindow(QWidget):
         duration_text = self.workout_duration_input.text().strip()
 
         if not w_type or not duration_text:
-            QMessageBox.warning(self, "שגיאה", "יש למלא את סוג האימון ומשך הזמן.")
+            show_styled_msgbox(self, "שגיאה", "יש למלא את סוג האימון ומשך הזמן.", QMessageBox.Icon.Warning)
             return
 
         duration = int(duration_text) if duration_text.isdigit() else 0
         if duration <= 0:
-            QMessageBox.warning(self, "שגיאה", "משך האימון חייב להיות מספר דקות חיובי.")
+            show_styled_msgbox(self, "שגיאה", "משך האימון חייב להיות מספר דקות חיובי.", QMessageBox.Icon.Warning)
             return
 
         success = self.dashboard_view.execute_remote_workout_save(w_type, duration)
@@ -617,7 +679,7 @@ class LoginView(QWidget):
         password = self.password_input.text().strip()
 
         if not username or not password:
-            QMessageBox.warning(self, "שגיאה", "יש להזין שם משתמש וסיסמה.")
+            show_styled_msgbox(self, "שגיאה", "יש להזין שם משתמש וסיסמה.", QMessageBox.Icon.Warning)
             return
 
         self.presenter.login(username, password)
@@ -627,7 +689,7 @@ class LoginView(QWidget):
         self.app_controller.show_dashboard_view()
 
     def on_login_error(self, message: str) -> None:
-        QMessageBox.warning(self, "פרטים שגויים", message)
+        show_styled_msgbox(self, "פרטים שגויים", message, QMessageBox.Icon.Warning)
 
     def reset_fields(self) -> None:
         self.username_input.clear()
@@ -764,10 +826,11 @@ class DashboardView(QWidget):
         self.chart_view_calories.setStyleSheet("background-color: transparent;")
         charts_layout.addWidget(self.chart_view_calories, stretch=1)
 
-        self.chart_view_workouts = QChartView()
-        self.chart_view_workouts.setMinimumHeight(280)
-        self.chart_view_workouts.setStyleSheet("background-color: transparent;")
-        charts_layout.addWidget(self.chart_view_workouts, stretch=1)
+        # גרף המשקל החדש
+        self.chart_view_weight = QChartView()
+        self.chart_view_weight.setMinimumHeight(280)
+        self.chart_view_weight.setStyleSheet("background-color: transparent;")
+        charts_layout.addWidget(self.chart_view_weight, stretch=1)
 
         content_layout.addWidget(charts_box)
 
@@ -818,7 +881,7 @@ class DashboardView(QWidget):
         MealDetailsDialog.show_meal(self, meal)
 
     def show_error(self, message: str) -> None:
-        QMessageBox.critical(self, "שגיאה", message)
+        show_styled_msgbox(self, "שגיאה", message, QMessageBox.Icon.Critical)
 
     def update_multiple_charts(self, protein_g: int, carbs_g: int, fat_g: int, current_calories: int, target_calories: int) -> None:
         if not self.chart_view_macro or not self.chart_view_calories:
@@ -866,28 +929,68 @@ class DashboardView(QWidget):
         chart2.legend().setLabelColor(QColor("#94A3B8"))
         self.chart_view_calories.setChart(chart2)
 
-    def update_workout_chart(self, workouts: list) -> None:
-        if not self.chart_view_workouts:
+    def update_weight_chart(self, weight_history: list) -> None:
+        if not self.chart_view_weight:
             return
 
-        pie_workout = QPieSeries()
-        if workouts:
-            for workout in workouts:
-                label = workout.get("workout_type", "אימון")
-                minutes = workout.get("duration_minutes", 0) or 0
-                pie_workout.append(f"{label} ({minutes} דק')", float(max(minutes, 1)))
-        else:
-            pie_workout.append("אין אימונים", 1.0)
+        series = QLineSeries()
+        series.setName("משקל (ק\"ג)")
+        
+        pen = QPen(QColor("#F43F5E"))
+        pen.setWidth(3)
+        series.setPen(pen)
 
-        chart3 = QChart()
-        chart3.addSeries(pie_workout)
-        chart3.setTitle("יומן אימונים — משך לפי סוג")
-        chart3.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
-        chart3.setBackgroundVisible(False)
-        chart3.setTitleBrush(QBrush(QColor("#FFFFFF")))
-        chart3.legend().setAlignment(Qt.AlignmentFlag.AlignBottom)
-        chart3.legend().setLabelColor(QColor("#94A3B8"))
-        self.chart_view_workouts.setChart(chart3)
+        min_w = 200.0
+        max_w = 0.0
+
+        if weight_history:
+            sorted_history = sorted(weight_history, key=lambda x: x["date"])
+            for i, entry in enumerate(sorted_history):
+                w = float(entry.get("weight", 0))
+                series.append(QPointF(i + 1, w))
+                if w < min_w: min_w = w
+                if w > max_w: max_w = w
+        else:
+            series.append(QPointF(1, 0))
+            min_w, max_w = 0, 10
+
+        chart = QChart()
+        chart.addSeries(series)
+        chart.setTitle("גרף מעקב משקל")
+        chart.setAnimationOptions(QChart.AnimationOption.SeriesAnimations)
+        chart.setBackgroundVisible(False)
+        chart.setTitleBrush(QBrush(QColor("#FFFFFF")))
+        chart.legend().setAlignment(Qt.AlignmentFlag.AlignBottom)
+        chart.legend().setLabelColor(QColor("#94A3B8"))
+
+        axis_x = QValueAxis()
+        axis_x.setLabelFormat("%d")
+        axis_x.setTitleText("מספר שקילה")
+        axis_x.setLabelsColor(QColor("#94A3B8"))
+        axis_x.setGridLineColor(QColor("#1E293B"))
+        
+        if weight_history and len(weight_history) > 1:
+            axis_x.setRange(1, len(weight_history))
+            axis_x.setTickCount(min(len(weight_history), 5))
+        else:
+            axis_x.setRange(1, 5)
+            axis_x.setTickCount(5)
+
+        axis_y = QValueAxis()
+        axis_y.setRange(max(0, min_w - 5), max_w + 5)
+        axis_y.setLabelFormat("%.1f")
+        axis_y.setTitleText("משקל (ק\"ג)")
+        axis_y.setLabelsColor(QColor("#94A3B8"))
+        axis_y.setGridLineColor(QColor("#1E293B"))
+
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_x)
+        series.attachAxis(axis_y)
+
+        series.setPointsVisible(True)
+
+        self.chart_view_weight.setChart(chart)
 
     def refresh_data(self) -> None:
         if not self.presenter.active_user:
@@ -926,7 +1029,7 @@ class DashboardView(QWidget):
             current_calories=c_cal,
             target_calories=data.get("target_calories", 2000),
         )
-        self.update_workout_chart(data.get("workouts", []))
+        self.update_weight_chart(data.get("weight_history", []))
 
     def handle_logout(self) -> None:
         self.presenter.logout()

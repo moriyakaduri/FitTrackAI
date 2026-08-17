@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -21,6 +22,9 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
         )
 
     user_events = db.query(UserEvent).filter(UserEvent.username == username).all()
+    
+    # תאריך של היום לאיפוס יומי!
+    today_str = date.today().isoformat()
 
     current_calories = 0
     protein_g = 0
@@ -31,7 +35,8 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
     total_calories_burned = 0
 
     for event in user_events:
-        if event.event_type == "meal":
+        # סוכם רק ארוחות של היום הנוכחי (איפוס יומי)
+        if event.event_type == "meal" and event.event_date == today_str:
             meals.append(
                 {
                     "id": event.id,
@@ -43,7 +48,9 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
             )
             current_calories += event.calories or 0
             protein_g += event.protein_g or 0
-        elif event.event_type == "workout":
+            
+        # סוכם רק אימונים של היום הנוכחי
+        elif event.event_type == "workout" and event.event_date == today_str:
             burned = event.calories_burned or 0
             duration = event.duration_minutes or 0
             workouts.append(
@@ -58,6 +65,8 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
             current_calories -= burned
             total_workout_minutes += duration
             total_calories_burned += burned
+            
+        # משקלים אנחנו לוקחים תמיד (כל ההיסטוריה) כדי לבנות את גרף המגמות
         elif event.event_type == "weight":
             if event.weight is not None and event.event_date:
                 weights.append({"weight": event.weight, "date": event.event_date})
