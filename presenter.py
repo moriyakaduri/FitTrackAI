@@ -130,17 +130,19 @@ class FitTrackPresenter(QObject):
             print(f"Meal details error: {error}")
             return None
 
-    def lookup_barcode(self, barcode: str):
+    # --- שינוי מרכזי: פונקציית החיפוש החופשי ---
+    def search_data(self, query: str):
         try:
             response = requests.get(
-                f"{API_BASE_URL}/queries/openfoodfacts",
-                params={"barcode": barcode},
+                f"{API_BASE_URL}/queries/search",
+                params={"q": query},
                 timeout=TIMEOUT_SECONDS,
             )
-            response.raise_for_status()
-            return response.json()
+            if response.status_code == 200:
+                return response.json()
+            return None
         except Exception as error:
-            print(f"OpenFoodFacts error: {error}")
+            print(f"Search error: {error}")
             return None
 
     def log_meal(self, meal_name: str, calories: int, protein_g: int):

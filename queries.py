@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gateway import ExternalServicesGateway
-from backend.models import User, UserEvent
+# שימי לב שהוספתי כאן את NutritionFact ו-Article
+from backend.models import User, UserEvent, NutritionFact, Article
 
 router = APIRouter(prefix="/queries", tags=["Queries"])
-
 
 def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
     user_profile = db.query(User).filter(User.username == username).first()
@@ -150,12 +150,31 @@ def meal_details(
         "protein_g": event.protein_g,
     }
 
-
-@router.get("/openfoodfacts")
-def openfoodfacts_lookup(
-    barcode: str = Query(..., min_length=8),
+# --- שינוי מרכזי: חיפוש טקסט חופשי (מאכלים או מאמרים) ---
+@router.get("/search")
+def search_database(
+    q: str = Query(..., min_length=2),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
-    product = ExternalServicesGateway.get_external_nutrition_data(barcode)
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found in OpenFoodFacts.")
-    return product
+    
+    # 1. חיפוש במאגר המאכלים
+    food = db.query(NutritionFact).filter(NutritionFact.food_name.ilike(f"%{q}%")).first()
+    if food:
+        return {
+            "type": "food",
+            "name": food.food_name,
+            "calories": food.calories,
+            "protein": food.protein_g
+        }
+    
+    # 2. אם לא מצא מאכל, חיפוש במאמרים
+    article = db.query(Article).filter(Article.title.ilike(f"%{q}%")).first()
+    if article:
+        return {
+            "type": "article",
+            "title": article.title,
+            "category": article.category,
+            "summary": article.content_summary[:250] + "..." if article.content_summary else "אין תקציר זמין."
+        }
+        
+    raise HTTPException(status_code=404, detail="לא נמצאו תוצאות במאגר.")
