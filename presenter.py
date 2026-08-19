@@ -130,7 +130,6 @@ class FitTrackPresenter(QObject):
             print(f"Meal details error: {error}")
             return None
 
-    # --- שינוי מרכזי: פונקציית החיפוש החופשי ---
     def search_data(self, query: str):
         try:
             response = requests.get(

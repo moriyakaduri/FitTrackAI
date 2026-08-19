@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gateway import ExternalServicesGateway
-# שימי לב שהוספתי כאן את NutritionFact ו-Article
 from backend.models import User, UserEvent, NutritionFact, Article
 
 router = APIRouter(prefix="/queries", tags=["Queries"])
@@ -35,8 +34,12 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
     total_calories_burned = 0
 
     for event in user_events:
+        # חילוץ בטוח של התאריך בלבד (ללא שעות) למניעת באגים של סינון
+        event_date_str = str(event.event_date).split("T")[0].split(" ")[0] if event.event_date else ""
+        is_today = (event_date_str == today_str)
+
         # סוכם רק ארוחות של היום הנוכחי (איפוס יומי)
-        if event.event_type == "meal" and event.event_date == today_str:
+        if event.event_type == "meal" and is_today:
             meals.append(
                 {
                     "id": event.id,
@@ -50,7 +53,7 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
             protein_g += event.protein_g or 0
             
         # סוכם רק אימונים של היום הנוכחי
-        elif event.event_type == "workout" and event.event_date == today_str:
+        elif event.event_type == "workout" and is_today:
             burned = event.calories_burned or 0
             duration = event.duration_minutes or 0
             workouts.append(
@@ -99,12 +102,21 @@ def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
             "הוסיפי עוד שקילות לצורך מעקב מגמה."
         )
 
+    # --- התיקון לאיפוס גרף המאקרו (הימני ביותר) ---
+    # חישוב דינמי של פחמימות ושומן לפי מה שנאכל *היום* בפועל!
+    protein_kcal = protein_g * 4
+    remaining_kcal = max(current_calories - protein_kcal, 0)
+    
+    # חלוקה משוערת: 60% פחמימות, 40% שומן מתוך הקלוריות הנותרות שנאכלו היום
+    consumed_carbs_g = int((remaining_kcal * 0.6) / 4) if current_calories > 0 else 0
+    consumed_fat_g = int((remaining_kcal * 0.4) / 9) if current_calories > 0 else 0
+
     return {
         "current_calories": max(current_calories, 0),
         "target_calories": user_profile.target_calories or 2000,
         "protein_g": protein_g,
-        "carbs_g": user_profile.carbs_g or 200,
-        "fat_g": user_profile.fat_g or 60,
+        "carbs_g": consumed_carbs_g,  # עכשיו שולח את צריכת היום שמתאפסת
+        "fat_g": consumed_fat_g,      # עכשיו שולח את צריכת היום שמתאפסת
         "meals": meals,
         "workouts": workouts,
         "total_workout_minutes": total_workout_minutes,
@@ -150,7 +162,6 @@ def meal_details(
         "protein_g": event.protein_g,
     }
 
-# --- שינוי מרכזי: חיפוש טקסט חופשי (מאכלים או מאמרים) ---
 @router.get("/search")
 def search_database(
     q: str = Query(..., min_length=2),
