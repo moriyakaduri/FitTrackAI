@@ -101,10 +101,12 @@ class ExternalServicesGateway:
     בהתאם לדרישות הארכיטקטורה והפרדת האחריות במערכת.
     """
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
-    OLLAMA_TEXT_MODEL = os.getenv("OLLAMA_TEXT_MODEL", "aminadaven/dictalm2.0-instruct:q8_0")
+    OLLAMA_TEXT_MODEL = os.getenv("OLLAMA_TEXT_MODEL", "aminadaven/dictalm2.0-instruct:q4_k_m")
     OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "llava")
 
     OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "1200"))
+    OLLAMA_TEXT_NUM_CTX = int(os.getenv("OLLAMA_TEXT_NUM_CTX", "2048"))
+    OLLAMA_TEXT_NUM_PREDICT = int(os.getenv("OLLAMA_TEXT_NUM_PREDICT", "256"))
     OPENFOODFACTS_URL = "https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
 
     @classmethod
@@ -209,7 +211,11 @@ Output Format:
                     "model": cls.OLLAMA_TEXT_MODEL,
                     "prompt": translation_prompt,
                     "stream": False,
-                    "options": {"temperature": 0.0},
+                    "options": {
+                        "temperature": 0.0,
+                        "num_ctx": cls.OLLAMA_TEXT_NUM_CTX,
+                        "num_predict": cls.OLLAMA_TEXT_NUM_PREDICT,
+                    },
                     "keep_alive": "10m",
                 },
                 timeout=cls.OLLAMA_TIMEOUT,
@@ -253,7 +259,11 @@ Output Format:
                     "model": cls.OLLAMA_TEXT_MODEL,
                     "prompt": system_prompt,
                     "stream": False,
-                    "options": {"temperature": 0.0},
+                    "options": {
+                        "temperature": 0.0,
+                        "num_ctx": cls.OLLAMA_TEXT_NUM_CTX,
+                        "num_predict": cls.OLLAMA_TEXT_NUM_PREDICT,
+                    },
                     "keep_alive": "10m",
                 },
                 timeout=cls.OLLAMA_TIMEOUT,
