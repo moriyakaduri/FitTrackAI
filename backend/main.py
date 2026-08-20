@@ -23,9 +23,9 @@ from backend.models import Article, NutritionFact, User
 
 # הגדרת תצורת Cloudinary
 cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", "YOUR_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY", "YOUR_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET", "YOUR_API_SECRET"),
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
     secure=True,
 )
 
@@ -110,14 +110,34 @@ class ExternalServicesGateway:
     OPENFOODFACTS_URL = "https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
 
     @classmethod
-    def upload_image_to_cloudinary(cls, contents: bytes, folder: str = "fittrack_food") -> Optional[str]:
+    def upload_image_to_cloudinary(cls, contents: bytes, folder: str = "fittrack_food") -> str:
         """העלאת תמונת מנה או פרופיל לענן Cloudinary"""
+        required_variables = (
+            "CLOUDINARY_CLOUD_NAME",
+            "CLOUDINARY_API_KEY",
+            "CLOUDINARY_API_SECRET",
+        )
+        missing_variables = [
+            name for name in required_variables if not os.getenv(name)
+        ]
+        if missing_variables:
+            raise RuntimeError(
+                "Cloudinary is not configured. Missing environment variables: "
+                + ", ".join(missing_variables)
+            )
+
         try:
-            result = cloudinary.uploader.upload(contents, folder=folder)
-            return result.get("secure_url")
+            result = cloudinary.uploader.upload(
+                contents,
+                folder=folder,
+                resource_type="image",
+            )
+            secure_url = result.get("secure_url")
+            if not secure_url:
+                raise RuntimeError("Cloudinary did not return a secure URL.")
+            return str(secure_url)
         except Exception as error:
-            print(f"Cloudinary upload error: {error}")
-            return None
+            raise RuntimeError(f"Cloudinary image upload failed: {error}") from error
 
     @classmethod
     def get_external_nutrition_data(cls, barcode: str) -> Optional[Dict[str, Any]]:
@@ -421,7 +441,9 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
 async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, Any]:
     try:
         contents = await file.read()
-        ExternalServicesGateway.upload_image_to_cloudinary(contents, folder="fittrack_food")
+        secure_url = ExternalServicesGateway.upload_image_to_cloudinary(
+            contents, folder="fittrack_food"
+        )
         img_base64 = compress_image_for_ai(contents)
         
         result = ExternalServicesGateway.analyze_food_image(img_base64)
@@ -434,6 +456,7 @@ async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, Any]:
             "ingredients": result.get("ingredients", []),
             "fat": str(int(result.get("fat", 0) or 0)),
             "carbs": str(int(result.get("carbs", 0) or 0)),
+            "secure_url": secure_url,
         }
     except (ValueError, json.JSONDecodeError) as parse_error:
         return {
@@ -452,12 +475,22 @@ async def chat_image_route(
 ) -> Dict[str, str]:
     try:
         contents = await file.read()
-        ExternalServicesGateway.upload_image_to_cloudinary(contents, folder="fittrack_chat")
+        secure_url = ExternalServicesGateway.upload_image_to_cloudinary(
+            contents, folder="fittrack_chat"
+        )
         img_base64 = compress_image_for_ai(contents)
         db_context = build_rag_context(db, prompt)
         response_text = ExternalServicesGateway.analyze_chat_image(
             img_base64, prompt, db_context
         )
-        return {"response": response_text}
+        return {
+            "status": "success",
+            "response": response_text,
+            "secure_url": secure_url,
+        }
     except Exception as error:
-        return {"response": f"שגיאה בניתוח: {error}"}
+        return {
+            "status": "error",
+            "response": f"שגיאה בניתוח: {error}",
+            "message": str(error),
+        }
