@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
 )
 
 from features.ui_components import GlowButton, show_styled_msgbox
-from presenter import SaveMealWorker
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -316,13 +315,13 @@ class DataEntryWindow(QWidget):
 
         self.btn_save_meal.setEnabled(False)
         self.btn_save_meal.setText("שומר... ⏳")
-
-        self.save_meal_worker = SaveMealWorker(
-            presenter.active_user, meal_name, calories, protein_g
+        presenter.log_meal(
+            meal_name,
+            calories,
+            protein_g,
+            self.on_meal_save_success,
+            self.on_meal_save_error,
         )
-        self.save_meal_worker.success_signal.connect(self.on_meal_save_success)
-        self.save_meal_worker.error_signal.connect(self.on_meal_save_error)
-        self.save_meal_worker.start()
 
     def on_meal_save_success(self) -> None:
         self.btn_save_meal.setEnabled(True)

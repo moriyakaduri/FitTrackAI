@@ -75,6 +75,7 @@ class FitTrackPresenter(QObject):
         self.dashboard_view = None
         self.login_view = None
         self.login_worker = None
+        self.save_meal_worker = None
 
     def set_views(self, login_view, dashboard_view):
         self.login_view = login_view
@@ -163,24 +164,20 @@ class FitTrackPresenter(QObject):
         except Exception as error:
             return {"status": "error", "message": f"חיפוש הברקוד נכשל: {error}"}
 
-    def log_meal(self, meal_name: str, calories: int, protein_g: int):
-        try:
-            response = requests.post(
-                f"{API_BASE_URL}/commands/log-meal",
-                json={
-                    "meal_name": meal_name,
-                    "calories": calories,
-                    "protein_g": protein_g,
-                    "username": self.active_user,
-                },
-                timeout=TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            self.dashboard_view.refresh_data()
-            return True
-        except Exception as error:
-            self.dashboard_view.show_error(f"שמירת הארוחה נכשלה:\n{error}")
-            return False
+    def log_meal(self, meal_name: str, calories: int, protein_g: int, success_callback=None, error_callback=None) -> None:
+        if not self.active_user:
+            if error_callback:
+                error_callback("אין משתמש מחובר.")
+            return
+
+        self.save_meal_worker = SaveMealWorker(
+            self.active_user, meal_name, calories, protein_g
+        )
+        if success_callback:
+            self.save_meal_worker.success_signal.connect(success_callback)
+        if error_callback:
+            self.save_meal_worker.error_signal.connect(error_callback)
+        self.save_meal_worker.start()
 
     def log_weight(self, weight: float, weight_date: str):
         try:

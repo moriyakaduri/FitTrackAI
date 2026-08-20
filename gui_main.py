@@ -224,9 +224,6 @@ class DashboardView(QWidget):
         root_layout.addWidget(sidebar, stretch=1)
         root_layout.addWidget(scroll_area, stretch=4)
 
-    def execute_remote_meal_save(self, meal_name: str, calories: int, protein_g: int) -> bool:
-        return self.presenter.log_meal(meal_name, calories, protein_g)
-
     def execute_remote_weight_save(self, weight: float, weight_date: str) -> bool:
         return self.presenter.log_weight(weight, weight_date)
 
