@@ -146,6 +146,23 @@ class FitTrackPresenter(QObject):
             print(f"Search error: {error}")
             return None
 
+    def lookup_barcode(self, barcode: str):
+        try:
+            response = requests.get(
+                f"{API_BASE_URL}/queries/barcode",
+                params={"barcode": barcode},
+                timeout=TIMEOUT_SECONDS,
+            )
+            payload = response.json() if response.content else {}
+            if response.status_code == 200:
+                return payload
+            return {
+                "status": "error",
+                "message": payload.get("detail", "חיפוש הברקוד נכשל."),
+            }
+        except Exception as error:
+            return {"status": "error", "message": f"חיפוש הברקוד נכשל: {error}"}
+
     def log_meal(self, meal_name: str, calories: int, protein_g: int):
         try:
             response = requests.post(

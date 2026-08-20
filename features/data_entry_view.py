@@ -115,6 +115,17 @@ class DataEntryWindow(QWidget):
         self.btn_open_calculator.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://zivzafrani.co.il/calorie-calculator/")))
         nut_layout.addWidget(self.btn_open_calculator)
 
+        nut_layout.addWidget(QLabel("ברקוד OpenFoodFacts:", styleSheet=label_style))
+        barcode_row = QHBoxLayout()
+        self.barcode_input = QLineEdit()
+        self.barcode_input.setPlaceholderText("הזן ברקוד מספרי, לדוגמה 3017620422003")
+        self.barcode_input.setStyleSheet(input_style)
+        self.btn_barcode = GlowButton("חפש ברקוד", base_color="#0F766E", hover_color="#0D9488", glow_color="#5EEAD4")
+        self.btn_barcode.clicked.connect(self.trigger_barcode_lookup)
+        barcode_row.addWidget(self.barcode_input)
+        barcode_row.addWidget(self.btn_barcode)
+        nut_layout.addLayout(barcode_row)
+
         nut_layout.addWidget(QLabel("שם המאכל / ארוחה:", styleSheet=label_style))
         self.meal_name_input = QLineEdit()
         self.meal_name_input.setPlaceholderText("הזן שם מאכל (לדוגמה: חזה עוף ואורז)...")
@@ -199,6 +210,45 @@ class DataEntryWindow(QWidget):
                 show_styled_msgbox(self, "תוצאת חיפוש - מאמר", text, QMessageBox.Icon.Information)
         else:
             show_styled_msgbox(self, "חיפוש נכשל", "לא נמצאו תוצאות במאגר המקומי.", QMessageBox.Icon.Warning)
+
+    def trigger_barcode_lookup(self) -> None:
+        barcode = self.barcode_input.text().strip()
+        if not barcode.isdigit() or not (8 <= len(barcode) <= 14):
+            show_styled_msgbox(
+                self,
+                "שגיאה",
+                "יש להזין ברקוד מספרי בן 8 עד 14 ספרות.",
+                QMessageBox.Icon.Warning,
+            )
+            return
+
+        self.btn_barcode.setText("מחפש...")
+        self.btn_barcode.setEnabled(False)
+        QApplication.processEvents()
+
+        result = self.dashboard_view.presenter.lookup_barcode(barcode)
+
+        self.btn_barcode.setText("חפש ברקוד")
+        self.btn_barcode.setEnabled(True)
+
+        if result and result.get("status") == "success":
+            self.meal_name_input.setText(str(result.get("name", "")))
+            self.meal_calories_input.setText(str(result.get("calories", 0)))
+            self.meal_protein_input.setText(str(result.get("protein", 0)))
+            text = (
+                f"שם המוצר: {result.get('name')}\n"
+                f"קלוריות (ל-100 גרם): {result.get('calories')} קק\"ל\n"
+                f"חלבון: {result.get('protein')} גרם\n"
+                f"מקור: {result.get('source', 'OpenFoodFacts')}\n\n"
+                "הערכים מולאו בטופס. שמירה ליומן מתבצעת רק אם תלחצ/י שמור."
+            )
+            show_styled_msgbox(self, "תוצאת OpenFoodFacts", text, QMessageBox.Icon.Information)
+            return
+
+        message = "המוצר לא נמצא ב-OpenFoodFacts."
+        if isinstance(result, dict) and result.get("message"):
+            message = str(result["message"])
+        show_styled_msgbox(self, "חיפוש ברקוד נכשל", message, QMessageBox.Icon.Warning)
 
     def simulate_camera_ai_analysis(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(

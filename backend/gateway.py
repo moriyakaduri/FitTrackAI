@@ -114,6 +114,7 @@ class ExternalServicesGateway:
         try:
             response = requests.get(
                 cls.OPENFOODFACTS_URL.format(barcode=barcode),
+                headers={"User-Agent": "FitTrackAI/1.0 (university project)"},
                 timeout=10,
             )
             if response.status_code != 200:
@@ -134,6 +135,8 @@ class ExternalServicesGateway:
                 "barcode": barcode,
                 "source": "OpenFoodFacts",
             }
+        except requests.exceptions.RequestException as error:
+            raise RuntimeError(f"OpenFoodFacts request failed: {error}") from error
         except Exception as error:
             print(f"OpenFoodFacts API error: {error}")
             return None

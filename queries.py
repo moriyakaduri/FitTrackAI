@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
+from backend.gateway import ExternalServicesGateway
 from backend.models import User, UserEvent, NutritionFact, Article
 
 router = APIRouter(prefix="/queries", tags=["Queries"])
@@ -191,3 +192,20 @@ def search_database(
         }
         
     raise HTTPException(status_code=404, detail="לא נמצאו תוצאות במאגר.")
+
+
+@router.get("/barcode")
+def barcode_lookup(barcode: str = Query(..., min_length=8, max_length=14)) -> Dict[str, Any]:
+    cleaned = barcode.strip()
+    if not cleaned.isdigit():
+        raise HTTPException(status_code=400, detail="יש להזין ברקוד מספרי בלבד.")
+    try:
+        product = ExternalServicesGateway.get_external_nutrition_data(cleaned)
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=503,
+            detail="לא ניתן להתחבר ל-OpenFoodFacts כרגע.",
+        ) from error
+    if not product:
+        raise HTTPException(status_code=404, detail="המוצר לא נמצא ב-OpenFoodFacts.")
+    return {"status": "success", **product}
