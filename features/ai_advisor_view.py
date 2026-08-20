@@ -39,16 +39,23 @@ class AIWorker(QThread):
 class ChatVisionWorker(QThread):
     finished_signal = Signal(str)
 
-    def __init__(self, file_path: str, api_base_url: str):
+    def __init__(self, file_path: str, api_base_url: str, prompt: str = ""):
         super().__init__()
         self.file_path = file_path
         self.api_base_url = api_base_url
+        self.prompt = prompt
 
     def run(self):
         try:
             with open(self.file_path, "rb") as f:
                 files = {"file": (self.file_path, f, "image/jpeg")}
-                response = requests.post(f"{self.api_base_url}/ai/chat-image", files=files, timeout=1200)
+                data = {"prompt": self.prompt} if self.prompt else None
+                response = requests.post(
+                    f"{self.api_base_url}/ai/chat-image",
+                    files=files,
+                    data=data,
+                    timeout=1200,
+                )
             response.raise_for_status()
             ai_response = response.json().get("response", "לא התקבלה תשובה מהשרת.")
         except requests.exceptions.Timeout:
@@ -193,6 +200,10 @@ class AIAgentView(QWidget):
             return
 
         file_name = file_path.split("/")[-1]
+        user_question = self.chat_input.text().strip()
+        if user_question:
+            self.add_user_bubble(user_question)
+            self.chat_input.clear()
         self.add_user_bubble(f"📸 שלחתי תמונה לבדיקה: {file_name}")
 
         self.btn_send.setEnabled(False)
@@ -200,7 +211,8 @@ class AIAgentView(QWidget):
         self.btn_send.setText("מנתח תמונה...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        self.chat_vision_worker = ChatVisionWorker(file_path, self.api_base_url)
+        prompt = user_question or "אנא נתח את המאכל שבתמונה"
+        self.chat_vision_worker = ChatVisionWorker(file_path, self.api_base_url, prompt)
         self.chat_vision_worker.finished_signal.connect(self.on_ai_response_received)
         self.chat_vision_worker.start()
 

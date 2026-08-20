@@ -289,20 +289,49 @@ Output Format:
 
     @classmethod
     def analyze_chat_image(cls, image_base64: str, prompt: str, db_context: str) -> str:
-        """
-        ניתוח תמונת צ'אט באמצעות אותו פלט מובנה ואמין של מסך הזנת הארוחה.
-        """
+        """Answer a chat question about an uploaded food image using LLaVA plus DictaLM."""
+        user_question = (prompt or "").strip() or "אנא נתח את המאכל שבתמונה"
+        rag_context = (db_context or "").strip() or "אין הקשר נוסף מהמאגר."
+        vision_prompt = (
+            "Look at this food image and answer the user's question using only what you see.\n"
+            "Write a concise English description of the food and a direct answer to the question.\n"
+            f"User question: {user_question}\n"
+        )
         try:
-            result = cls.analyze_food_image(image_base64)
-            ingredients = ", ".join(result["ingredients"]) or "לא זוהו רכיבים נוספים"
-            return (
-                f"1. <b>שם המנה:</b> {result['name']}<br>"
-                f"2. <b>רכיבים גלויים:</b> {ingredients}<br>"
-                "3. <b>ערכים תזונתיים משוערים (לכל המנה):</b><br>"
-                f"• קלוריות: {result['calories']} קק\"ל | "
-                f"חלבון: {result['protein']} גרם | "
-                f"שומן: {result['fat']} גרם | "
-                f"פחמימות: {result['carbs']} גרם"
+            vision_response = requests.post(
+                cls.OLLAMA_URL,
+                json={
+                    "model": cls.OLLAMA_VISION_MODEL,
+                    "prompt": vision_prompt,
+                    "stream": False,
+                    "images": [image_base64],
+                    "options": {
+                        "temperature": 0.0,
+                        "num_predict": cls.OLLAMA_TEXT_NUM_PREDICT,
+                    },
+                    "keep_alive": "10m",
+                },
+                timeout=cls.OLLAMA_TIMEOUT,
             )
+            vision_response.raise_for_status()
+            image_description = vision_response.json().get("response", "").strip()
+            if not image_description:
+                raise ValueError("מודל הראייה לא החזיר תיאור לתמונה")
+
+            hebrew_prompt = f"""
+אתה יועץ כושר ותזונה וירטואלי בשם FitTrack AI.
+ענה בעברית, בקצרה, ובקשר ישיר לשאלת המשתמש ולתמונה.
+אם השתמשת במידע מהמאגר, ציין זאת.
+
+שאלת המשתמש:
+{user_question}
+
+תיאור התמונה ממודל הראייה:
+{image_description}
+
+מידע מהמאגר:
+{rag_context}
+"""
+            return cls.get_ai_consultation(hebrew_prompt)
         except Exception as error:
             return f"<b>שגיאה בניתוח התמונה:</b><br>{error}"
