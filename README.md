@@ -9,6 +9,21 @@ Packaged products can be looked up by barcode through OpenFoodFacts.
 AI values are estimates. Nothing is saved until the user confirms the meal,
 weight, or workout entry.
 
+## Where to show each requirement
+
+| Requirement | Open this |
+|---|---|
+| MVP | `mvp/` |
+| Microfrontends | `mvp/view/features/` |
+| MVC | `backend/mvc/` |
+| CQRS | `backend/cqrs/` |
+| Event Sourcing | `backend/event_sourcing/` |
+| Gateway | `backend/gateway/` |
+| Cursor Skill | `.cursor/skills/fittrack-safe-change/` |
+| PRD / PIV | `docs/PRD.md`, `docs/PIV.md` |
+
+Desktop entry: `python gui_main.py`. API entry: `uvicorn backend.main:app`.
+
 ## Main capabilities
 
 - Login, Hebrew dashboard, charts, and meal details
@@ -23,19 +38,11 @@ weight, or workout entry.
 ## Architecture summary
 
 ```text
-PySide6 Views → Presenter → Workers when the call must not block the GUI
-        → FastAPI → Commands / Queries → SQL Server
-                 → Gateway → Ollama / Cloudinary / OpenFoodFacts
+mvp/view (PySide6) -> mvp/presenter -> FastAPI (backend/main.py)
+        -> backend/cqrs commands/queries -> SQL Server
+        -> backend/mvc/controllers (login, AI)
+        -> backend/gateway -> Ollama / Cloudinary / OpenFoodFacts
 ```
-
-- **MVP:** views in `features/` and `gui_main.py`; presenter in `presenter.py`;
-  model is SQLAlchemy plus API JSON. Login and meal save use presenter workers.
-  AI workers call `/ai/*` directly.
-- **CQRS-inspired:** writes in `commands.py`, reads in `queries.py`, one shared
-  database.
-- **Event log:** `UserEvents` is append-only for meals, weights, and workouts.
-- **Desktop feature modules:** one PySide6 process, not separately deployed
-  web microfrontends.
 
 Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -119,14 +126,19 @@ Ollama GPU notes: [`docs/OLLAMA_DOCKER.md`](docs/OLLAMA_DOCKER.md).
 
 ## Project structure
 
-- `features/` — authentication, AI, data-entry, trends, motivation, shared UI
-- `gui_main.py` — composition shell and dashboard
-- `presenter.py` — MVP presenter, login worker, meal-save worker
-- `backend/main.py` — FastAPI composition, RAG, AI routes
-- `commands.py` / `queries.py` — write/read HTTP modules
-- `backend/gateway.py` — Ollama, Cloudinary, OpenFoodFacts
-- `backend/models.py` — SQLAlchemy entities including `UserEvents`
+- `gui_main.py` — desktop entry and dashboard composition shell
+- `mvp/view/features/` — authentication, AI, data-entry, trends, motivation
+- `mvp/presenter/` — MVP presenter, login worker, meal-save worker
+- `mvp/model/` — desktop API URL/timeouts (not the SQLAlchemy entities)
+- `backend/main.py` — FastAPI composition root
+- `backend/mvc/models/` — SQLAlchemy entities including `UserEvent`
+- `backend/mvc/controllers/` — login and AI HTTP controllers
+- `backend/cqrs/` — command and query routers
+- `backend/event_sourcing/` — locator for the activity event log
+- `backend/gateway/` — Ollama, Cloudinary, OpenFoodFacts
+- `backend/database/` — SQLAlchemy engine and sessions
 - `compose.yaml` — Ollama service, persistent volume, optional GPU request
+- `.cursor/skills/fittrack-safe-change/` — project Cursor Skill
 - `docs/` — PRD, architecture, PIV, Ollama instructions
 
 ## Deeper documentation

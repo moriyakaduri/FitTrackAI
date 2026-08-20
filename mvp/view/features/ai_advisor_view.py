@@ -7,9 +7,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from features.ui_components import GlowButton, make_page_header
-
-API_BASE_URL = "http://127.0.0.1:8000"
+from mvp.model.api import API_BASE_URL
+from mvp.view.features.ui_components import GlowButton, make_page_header
 
 class AIWorker(QThread):
     finished_signal = Signal(str)

@@ -8,10 +8,10 @@ from PySide6.QtWidgets import QFrame, QLabel, QLineEdit, QMessageBox, QVBoxLayou
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
-from features.ui_components import (
+from mvp.presenter import FitTrackPresenter
+from mvp.view.features.ui_components import (
     GlowButton, apply_neon_shadow, play_card_fly_animation, show_styled_msgbox,
 )
-from presenter import FitTrackPresenter
 
 class LoginView(QWidget):
     def __init__(self, app_controller: "FitTrackApplication", presenter: FitTrackPresenter) -> None:
@@ -31,7 +31,7 @@ class LoginView(QWidget):
         self.video_sink.videoFrameChanged.connect(self.on_frame_changed)
         self.current_frame = None
 
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         video_path = os.path.join(repo_root, "runner.mp4")
         if os.path.exists(video_path):
             self.media_player.setSource(QUrl.fromLocalFile(video_path))

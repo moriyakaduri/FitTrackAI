@@ -5,7 +5,7 @@ import random
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from features.ui_components import GlowButton, make_page_header
+from mvp.view.features.ui_components import GlowButton, make_page_header
 
 class MotivationWindow(QWidget):
     def __init__(self) -> None:

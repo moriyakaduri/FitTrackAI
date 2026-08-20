@@ -3,8 +3,7 @@
 import requests
 from PySide6.QtCore import QObject, QThread, Signal
 
-API_BASE_URL = "http://127.0.0.1:8000"
-TIMEOUT_SECONDS = 60
+from mvp.model.api import API_BASE_URL, TIMEOUT_SECONDS
 
 
 class LoginWorker(QThread):

@@ -10,9 +10,8 @@ from PySide6.QtWidgets import (
     QMessageBox, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from features.ui_components import GlowButton, make_page_header, show_styled_msgbox
-
-API_BASE_URL = "http://127.0.0.1:8000"
+from mvp.model.api import API_BASE_URL
+from mvp.view.features.ui_components import GlowButton, make_page_header, show_styled_msgbox
 
 class VisionWorker(QThread):
     finished_signal = Signal(dict)

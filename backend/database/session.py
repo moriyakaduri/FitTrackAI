@@ -5,7 +5,7 @@ import pyodbc
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.models import Base
+from backend.mvc.models.entities import Base
 
 DB_USER = os.getenv("FITTRACK_DB_USER", "moriyakaduri_SQLLogin_1")
 DB_PASS = os.getenv("FITTRACK_DB_PASS", "8hw5dkrycj")

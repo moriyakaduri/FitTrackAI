@@ -19,18 +19,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QVideoSink
 from PySide6.QtMultimediaWidgets import QVideoWidget
 
-from presenter import FitTrackPresenter
-from features.ai_advisor_view import AIAgentView
-from features.auth_view import LoginView
-from features.data_entry_view import DataEntryWindow
-from features.motivation_view import MotivationWindow
-from features.trends_view import TrendsAndWorkoutsWindow
-from features.ui_components import (
+from mvp.model.api import API_BASE_URL
+from mvp.presenter import FitTrackPresenter
+from mvp.view.features.ai_advisor_view import AIAgentView
+from mvp.view.features.auth_view import LoginView
+from mvp.view.features.data_entry_view import DataEntryWindow
+from mvp.view.features.motivation_view import MotivationWindow
+from mvp.view.features.trends_view import TrendsAndWorkoutsWindow
+from mvp.view.features.ui_components import (
     GlowButton, HoverCard, MealDetailsDialog, play_fade_in_animation,
     show_styled_msgbox,
 )
-
-API_BASE_URL = "http://127.0.0.1:8000"
 
 # =====================================================================
 # רכיבי UI אינטראקטיביים חכמים 

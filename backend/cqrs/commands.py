@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import UserEvent
+from backend.mvc.models.entities import UserEvent
 
 router = APIRouter(prefix="/commands", tags=["Commands"])
 

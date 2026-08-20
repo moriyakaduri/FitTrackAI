@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.gateway import ExternalServicesGateway
-from backend.models import User, UserEvent, NutritionFact, Article
+from backend.mvc.models.entities import Article, NutritionFact, User, UserEvent
 
 router = APIRouter(prefix="/queries", tags=["Queries"])
 

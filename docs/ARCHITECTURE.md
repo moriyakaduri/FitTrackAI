@@ -3,25 +3,54 @@
 This document describes the implemented project, including deliberate
 lightweight interpretations used for a university desktop application.
 
+## Where to show each requirement
+
+Open these folders during defense, in this order:
+
+1. `mvp/` — desktop MVP
+2. `mvp/view/features/` — desktop microfrontends
+3. `backend/mvc/` — server MVC (models + HTTP controllers)
+4. `backend/cqrs/` — commands vs queries
+5. `backend/event_sourcing/` — locator for UserEvent, append, projection
+6. `backend/gateway/` — Ollama, Cloudinary, OpenFoodFacts
+7. `.cursor/skills/fittrack-safe-change/` — Cursor Skill
+8. `docs/` — PRD, PIV, architecture
+
+| Requirement | Folder |
+|---|---|
+| MVP | `mvp/` (`model/`, `presenter/`, `view/`) |
+| Microfrontends | `mvp/view/features/` |
+| MVC | `backend/mvc/` |
+| CQRS | `backend/cqrs/` |
+| Event Sourcing | `backend/event_sourcing/` plus `UserEvent` / `append_user_event` / `get_nutrition_summary` |
+| Gateway | `backend/gateway/` |
+| Skill | `.cursor/skills/fittrack-safe-change/SKILL.md` |
+| PRD | `docs/PRD.md` |
+| PIV | `docs/PIV.md` |
+
+The FastAPI composition root remains `backend/main.py`. The desktop entry
+point remains `gui_main.py`. API JSON is the server-side View representation;
+there is no graphical View package on the server.
+
 ## Current request flow
 
 ```text
-PySide6 Views  (features/* and DashboardView)
+PySide6 Views  (mvp/view/features and DashboardView in gui_main.py)
         |
         |  login, meals, search, barcode, weight, workout, dashboard reads
         v
-Presenter  (presenter.py)
+Presenter  (mvp/presenter)
         |
         |  LoginWorker / SaveMealWorker when the call must stay off the UI thread
         v
 FastAPI  (backend/main.py)
         |
-        +--> Commands  (commands.py)  --> UserEvents insert
-        +--> Queries   (queries.py)   --> SQL Server reads / barcode lookup
-        +--> AI routes                --> RAG context + Gateway
+        +--> CQRS commands  (backend/cqrs/commands.py)  --> UserEvents insert
+        +--> CQRS queries   (backend/cqrs/queries.py)   --> SQL Server / barcode
+        +--> MVC controllers (auth, AI) --> RAG context + Gateway
                     |
                     v
-              ExternalServicesGateway
+              ExternalServicesGateway  (backend/gateway)
                     |
                     +--> Ollama (DictaLM, LLaVA)
                     +--> Cloudinary
@@ -49,9 +78,9 @@ flowchart LR
     Presenter -->|HTTP JSON| API["FastAPI\nbackend.main"]
     Views -->|long-running AI workers| API
 
-    API --> Commands["commands.py\nwrite side"]
-    API --> Queries["queries.py\nread side"]
-    API --> Gateway["ExternalServicesGateway"]
+    API --> Commands["backend/cqrs/commands.py"]
+    API --> Queries["backend/cqrs/queries.py"]
+    API --> Gateway["backend/gateway"]
 
     Commands --> DB[("Cloud SQL Server on Somee")]
     Queries --> DB
@@ -61,8 +90,8 @@ flowchart LR
     Gateway --> OFF["OpenFoodFacts\nbarcode lookup"]
 ```
 
-`backend/main.py` is the FastAPI composition root. It registers routers,
-builds RAG context for AI prompts, and delegates provider HTTP to the Gateway.
+`backend/main.py` is the FastAPI composition root. It registers MVC and CQRS
+routers. Provider HTTP stays in the Gateway.
 
 ## Desktop feature modules and MVP
 
@@ -70,14 +99,14 @@ builds RAG context for AI prompts, and delegates provider HTTP to the Gateway.
 flowchart TD
     Shell["gui_main.py\nFitTrackApplication"]
     Dashboard["gui_main.py\nDashboardView"]
-    Presenter["presenter.py\nFitTrackPresenter"]
+    Presenter["mvp/presenter\nFitTrackPresenter"]
 
-    Shell --> Auth["features/auth_view.py"]
+    Shell --> Auth["mvp/view/features/auth_view.py"]
     Shell --> Dashboard
-    Shell --> AI["features/ai_advisor_view.py"]
-    Shell --> Entry["features/data_entry_view.py"]
-    Shell --> Trends["features/trends_view.py"]
-    Shell --> Motivation["features/motivation_view.py"]
+    Shell --> AI["mvp/view/features/ai_advisor_view.py"]
+    Shell --> Entry["mvp/view/features/data_entry_view.py"]
+    Shell --> Trends["mvp/view/features/trends_view.py"]
+    Shell --> Motivation["mvp/view/features/motivation_view.py"]
 
     Auth -->|LoginWorker| Presenter
     Dashboard --> Presenter
@@ -94,11 +123,11 @@ microfrontends.
 
 MVP is applied as follows:
 
-- **View:** feature widgets and `DashboardView`.
-- **Presenter:** `FitTrackPresenter` coordinates login, dashboard reads,
-  search, barcode lookup, meal save, weight, and workout.
-- **Model:** SQLAlchemy entities plus FastAPI JSON projections. The desktop
-  does not open SQL Server itself.
+- **View:** `mvp/view/features/*` and `DashboardView` in `gui_main.py`.
+- **Presenter:** `mvp/presenter/FitTrackPresenter` coordinates login, dashboard
+  reads, search, barcode lookup, meal save, weight, and workout.
+- **Desktop model:** `mvp/model` holds the API base URL and timeouts. SQLAlchemy
+  entities live on the server. The desktop does not open SQL Server.
 - **Workers:** `LoginWorker` and `SaveMealWorker` keep slow HTTP off the UI
   thread. AI feature workers are a documented presenter bypass for inference.
 
@@ -160,10 +189,17 @@ sequenceDiagram
     Query-->>Dashboard: Dashboard JSON
 ```
 
-Event Sourcing is limited to user activity. Command handlers append events and
-do not update earlier events; `get_nutrition_summary` folds the log into a read
-projection. Users, nutrition facts, and articles remain normal relational
-tables. Snapshots and event upcasting are outside this course-scale scope.
+Event Sourcing is limited to user activity. Locate it at:
+
+- `backend/event_sourcing/` — package that re-exports the three pieces
+- `UserEvent` — `backend/mvc/models/entities.py`
+- `append_user_event` — `backend/cqrs/commands.py`
+- `get_nutrition_summary` — `backend/cqrs/queries.py`
+
+Command handlers append events and do not update earlier events;
+`get_nutrition_summary` folds the log into a read projection. Users, nutrition
+facts, and articles remain normal relational tables. Snapshots and event
+upcasting are outside this course-scale scope.
 
 Meal saving uses `SaveMealWorker` before the command HTTP call. Weight and
 workout currently perform that HTTP call on the UI thread.
@@ -197,7 +233,7 @@ has been validated with known nutrition and article records.
 
 ## Food image analysis
 
-Used from Data Entry (`העלה תמונה לניתוח AI`) through `POST /ai/analyze-image`.
+Used from Data Entry (`ניתוח תמונת אוכל`) through `POST /ai/analyze-image`.
 
 ```mermaid
 flowchart LR
@@ -221,7 +257,7 @@ as a successful meal.
 ## Image chat
 
 Used from the AI advisor: the user types a question, then chooses
-`📷 תמונה`. The GUI sends the image and prompt to `POST /ai/chat-image`.
+`צרף תמונה`. The GUI sends the image and prompt to `POST /ai/chat-image`.
 
 ```mermaid
 sequenceDiagram
@@ -275,7 +311,7 @@ still save explicitly.
 
 ## Gateway boundary
 
-`backend/gateway.py` owns:
+`backend/gateway` (`ExternalServicesGateway`) owns:
 
 - Cloudinary configuration and upload;
 - Ollama text and vision calls;

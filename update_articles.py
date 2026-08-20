@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from backend.models import Article
+from backend.mvc.models.entities import Article
 
 # 1. התחברות למסד הנתונים שלך
 DB_URL = "mssql+pymssql://moriyakaduri_SQLLogin_1:8hw5dkrycj@FitTrackDB.mssql.somee.com/FitTrackDB"

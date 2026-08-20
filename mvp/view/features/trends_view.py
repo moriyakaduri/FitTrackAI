@@ -3,7 +3,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGroupBox, QLabel, QLineEdit, QMessageBox, QVBoxLayout, QWidget
 
-from features.ui_components import GlowButton, make_page_header, show_styled_msgbox
+from mvp.view.features.ui_components import GlowButton, make_page_header, show_styled_msgbox
 
 class TrendsAndWorkoutsWindow(QWidget):
     def __init__(self, dashboard_view: "DashboardView") -> None:
