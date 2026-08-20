@@ -7,3 +7,6 @@ sqlalchemy>=2.0.0
 pyodbc>=5.0.0
 cloudinary>=1.36.0
 Pillow>=10.0.0
+python-multipart>=0.0.32
+beautifulsoup4>=4.15.0
+pymssql>=2.3.13
