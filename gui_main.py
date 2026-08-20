@@ -27,6 +27,7 @@ from features.motivation_view import MotivationWindow
 from features.trends_view import TrendsAndWorkoutsWindow
 from features.ui_components import (
     GlowButton, HoverCard, MealDetailsDialog, play_fade_in_animation,
+    show_styled_msgbox,
 )
 
 API_BASE_URL = "http://127.0.0.1:8000"
@@ -86,30 +87,30 @@ class DashboardView(QWidget):
         sidebar_layout.setContentsMargins(16, 24, 16, 24)
         sidebar_layout.setSpacing(14)
 
-        sidebar_title = QLabel("תפריט FitTrack")
+        sidebar_title = QLabel("תפריט")
         sidebar_title.setAlignment(Qt.AlignmentFlag.AlignRight)
-        sidebar_title.setStyleSheet("color: #38BDF8; font-size: 22px; font-weight: bold; background: transparent; border: none;")
+        sidebar_title.setStyleSheet("color: #38BDF8; font-size: 20px; font-weight: bold; background: transparent; border: none;")
         sidebar_layout.addWidget(sidebar_title)
 
-        self.btn_nav_data_entry = GlowButton(" מרכז ניהול והזנה", base_color="#0284C7", hover_color="#0EA5E9", glow_color="#7DD3FC", align="right", border_color="#0369A1")
+        self.btn_nav_data_entry = GlowButton("הזנת נתונים", base_color="#0284C7", hover_color="#0EA5E9", glow_color="#7DD3FC", align="right", border_color="#0369A1")
         self.btn_nav_data_entry.clicked.connect(self.app_controller.open_data_entry_window)
         sidebar_layout.addWidget(self.btn_nav_data_entry)
 
-        self.btn_nav_trends = GlowButton(" מגמות ומדדי אימון", base_color="#9333EA", hover_color="#A855F7", glow_color="#D8B4FE", align="right", border_color="#7E22CE")
+        self.btn_nav_trends = GlowButton("מגמות ואימונים", base_color="#9333EA", hover_color="#A855F7", glow_color="#D8B4FE", align="right", border_color="#7E22CE")
         self.btn_nav_trends.clicked.connect(self.app_controller.open_trends_window)
         sidebar_layout.addWidget(self.btn_nav_trends)
 
-        ai_button = GlowButton(" התייעצות עם AI", base_color="#1F2937", hover_color="#374151", glow_color="#9CA3AF", align="right", border_color="#111827")
+        ai_button = GlowButton("יועץ AI", base_color="#1F2937", hover_color="#374151", glow_color="#9CA3AF", align="right", border_color="#111827")
         ai_button.clicked.connect(self.app_controller.show_ai_view)
         sidebar_layout.addWidget(ai_button)
 
-        self.btn_open_motivation = GlowButton(" השראת ספורט יומית", base_color="#312E81", hover_color="#4338CA", glow_color="#A5B4FC", align="right", border_color="#1E1B4B")
+        self.btn_open_motivation = GlowButton("מוטיבציה", base_color="#312E81", hover_color="#4338CA", glow_color="#A5B4FC", align="right", border_color="#1E1B4B")
         self.btn_open_motivation.clicked.connect(self.app_controller.open_motivation_window)
         sidebar_layout.addWidget(self.btn_open_motivation)
 
         sidebar_layout.addStretch()
 
-        logout_button = GlowButton(" התנתק", base_color="#991B1B", hover_color="#DC2626", glow_color="#FCA5A5", align="center")
+        logout_button = GlowButton("התנתקות", base_color="#991B1B", hover_color="#DC2626", glow_color="#FCA5A5", align="center")
         logout_button.clicked.connect(self.handle_logout)
         sidebar_layout.addWidget(logout_button)
 
@@ -124,16 +125,22 @@ class DashboardView(QWidget):
         content_layout.setContentsMargins(30, 30, 30, 30)
         content_layout.setSpacing(25)
 
-        self.welcome_label = QLabel("ברוכ/ה הבא/ה!")
+        self.welcome_label = QLabel("ברוכים הבאים")
         self.welcome_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.welcome_label.setStyleSheet("""
-            font-size: 32px; 
-            font-weight: 900; 
+            font-size: 28px; 
+            font-weight: 800; 
             color: #E0F2FE; 
             background: transparent;
             padding: 5px;
         """)
         content_layout.addWidget(self.welcome_label)
+
+        self.welcome_hint = QLabel("הזנת ארוחות, חיפוש במאגר וברקוד נמצאים בחלון הזנת נתונים.")
+        self.welcome_hint.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.welcome_hint.setWordWrap(True)
+        self.welcome_hint.setStyleSheet("color: #94A3B8; font-size: 13px; background: transparent; border: none;")
+        content_layout.addWidget(self.welcome_hint)
 
         self.cards_frame = QWidget()
         cards_layout = QHBoxLayout(self.cards_frame)
@@ -172,7 +179,7 @@ class DashboardView(QWidget):
         self.charts_card = HoverCard(bg_color="#0B132B")
         charts_main_layout = QVBoxLayout(self.charts_card)
         
-        charts_title = QLabel("מרכז ניתוח חזותי ואנליטיקה מרובה (Queries)")
+        charts_title = QLabel("גרפים ומדדים יומיים")
         charts_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         charts_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38BDF8; background: transparent; border: none;")
         charts_main_layout.addWidget(charts_title)
@@ -199,10 +206,15 @@ class DashboardView(QWidget):
         self.table_card = HoverCard(bg_color="#0B132B")
         table_layout = QVBoxLayout(self.table_card)
         
-        table_title = QLabel(" יומן ארוחות וסנכרון Event Store")
+        table_title = QLabel("יומן ארוחות היום")
         table_title.setAlignment(Qt.AlignmentFlag.AlignRight)
         table_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #94A3B8; background: transparent; border: none;")
         table_layout.addWidget(table_title)
+
+        self.lbl_meals_empty = QLabel("אין ארוחות להיום. הוסיפו ארוחה מחלון הזנת נתונים. לחיצה כפולה על שורה מציגה פרטים.")
+        self.lbl_meals_empty.setWordWrap(True)
+        self.lbl_meals_empty.setStyleSheet("color: #64748B; font-size: 13px; background: transparent; border: none;")
+        table_layout.addWidget(self.lbl_meals_empty)
 
         self.meals_table = QTableWidget()
         self.meals_table.setColumnCount(3)
@@ -370,7 +382,7 @@ class DashboardView(QWidget):
             return
             
         if self.welcome_label:
-            self.welcome_label.setText(f"👋 שלום {self.presenter.active_user.upper()}! ברוכה הבאה למרכז הבקרה שלך")
+            self.welcome_label.setText(f"שלום {self.presenter.active_user}")
 
         data = self.presenter.fetch_dashboard_data()
         if not data:
@@ -379,6 +391,7 @@ class DashboardView(QWidget):
         meals = data.get("meals", [])
         self.meals_data = meals
         self.meals_table.setRowCount(len(meals))
+        self.lbl_meals_empty.setVisible(len(meals) == 0)
         for row_index, meal in enumerate(meals):
             self.meals_table.setItem(row_index, 0, QTableWidgetItem(str(meal.get("meal_name", ""))))
             self.meals_table.setItem(row_index, 1, QTableWidgetItem(f"{meal.get('calories', 0)} קק\"ל"))
@@ -415,7 +428,7 @@ class FitTrackApplication(QMainWindow):
         super().__init__()
         self.presenter = FitTrackPresenter() 
         
-        self.setWindowTitle("FitTrack AI - Lev Academic Center")
+        self.setWindowTitle("FitTrack AI — המרכז האקדמי לב")
         self.resize(1150, 800) 
         self.setMinimumSize(1024, 740)
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)

@@ -31,14 +31,12 @@ class LoginView(QWidget):
         self.video_sink.videoFrameChanged.connect(self.on_frame_changed)
         self.current_frame = None
 
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        video_path = os.path.join(current_dir, "runner.mp4")
-        if not os.path.exists(video_path):
-            video_path = r"C:\Users\05879\Downloads\runner.mp4"
-
-        self.media_player.setSource(QUrl.fromLocalFile(video_path))
-        self.media_player.setLoops(-1)
-        self.media_player.play()
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        video_path = os.path.join(repo_root, "runner.mp4")
+        if os.path.exists(video_path):
+            self.media_player.setSource(QUrl.fromLocalFile(video_path))
+            self.media_player.setLoops(-1)
+            self.media_player.play()
 
         self._build_ui()
 

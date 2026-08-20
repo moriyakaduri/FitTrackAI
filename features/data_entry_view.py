@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from features.ui_components import GlowButton, show_styled_msgbox
+from features.ui_components import GlowButton, make_page_header, show_styled_msgbox
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -46,7 +46,7 @@ class DataEntryWindow(QWidget):
         super().__init__()
         self.dashboard_view = dashboard_view
         self.api_base_url = api_base_url
-        self.setWindowTitle("FitTrack AI — מרכז הזנת נתונים מרוכז")
+        self.setWindowTitle("FitTrack AI — הזנת נתונים")
         self.resize(550, 750)
         self.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.setStyleSheet("background-color: #0A0F1D; border: 2px solid #06B6D4; border-radius: 12px;")
@@ -69,10 +69,10 @@ class DataEntryWindow(QWidget):
         layout.setContentsMargins(30, 30, 30, 30)
         layout.setSpacing(16)
 
-        header = QLabel(" מרכז ניהול והזנת נתונים")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("font-size: 22px; font-weight: bold; color: #06B6D4; border: none; padding-bottom: 5px;")
-        layout.addWidget(header)
+        layout.addWidget(make_page_header(
+            "הזנת נתונים",
+            "חיפוש במאגר, ברקוד, ארוחה, משקל וניתוח תמונה.",
+        ))
 
         input_style = """
             QLineEdit {
@@ -83,10 +83,16 @@ class DataEntryWindow(QWidget):
             QLineEdit:focus { border: 2px solid #06B6D4; background-color: #090D16; }
         """
         label_style = "color: #FFFFFF; font-weight: bold; font-size: 14px; text-align: right; border: none;"
+        hint_style = "color: #94A3B8; font-size: 12px; font-weight: normal; text-align: right; border: none;"
+        group_style = "QGroupBox { font-weight: bold; border: 1px solid #1E293B; border-radius: 8px; margin-top: 10px; padding-top: 15px; }"
 
-        search_group = QGroupBox("חיפוש נתונים במאגר (לפי שם או מאמר)")
-        search_group.setStyleSheet("QGroupBox { font-weight: bold; color: #A855F7; border: 1px solid #1E293B; border-radius: 8px; margin-top: 10px; padding-top: 15px; }")
+        search_group = QGroupBox("חיפוש במאגר התזונה")
+        search_group.setStyleSheet(group_style + " QGroupBox { color: #A855F7; }")
         search_layout = QVBoxLayout(search_group)
+        search_hint = QLabel("חפשו מאכל או מאמר לפי שם. תוצאת מאכל ממלאת את טופס הארוחה.")
+        search_hint.setWordWrap(True)
+        search_hint.setStyleSheet(hint_style)
+        search_layout.addWidget(search_hint)
 
         search_row = QHBoxLayout()
         self.search_input = QLineEdit()
@@ -101,29 +107,41 @@ class DataEntryWindow(QWidget):
         search_layout.addLayout(search_row)
         layout.addWidget(search_group)
 
-        nutrition_group = QGroupBox("הוספת מאכל או ארוחה חדשה")
-        nutrition_group.setStyleSheet("QGroupBox { font-weight: bold; color: #10B981; border: 1px solid #1E293B; border-radius: 8px; margin-top: 10px; padding-top: 15px; }")
-        nut_layout = QVBoxLayout(nutrition_group)
-        nut_layout.setSpacing(10)
-
-        self.btn_camera_ai = GlowButton(" העלה תמונה לניתוח AI", base_color="#0F172A", hover_color="#1E293B", glow_color="#38BDF8", border_color="#06B6D4")
-        self.btn_camera_ai.clicked.connect(self.simulate_camera_ai_analysis)
-        nut_layout.addWidget(self.btn_camera_ai)
-
-        self.btn_open_calculator = GlowButton(" פתח מחשבון קלוריות מתקדם (Ziv Zafrani)", base_color="#F59E0B", hover_color="#D97706", glow_color="#FDE68A")
-        self.btn_open_calculator.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://zivzafrani.co.il/calorie-calculator/")))
-        nut_layout.addWidget(self.btn_open_calculator)
-
-        nut_layout.addWidget(QLabel("ברקוד OpenFoodFacts:", styleSheet=label_style))
+        barcode_group = QGroupBox("שליפת מוצר לפי ברקוד")
+        barcode_group.setStyleSheet(group_style + " QGroupBox { color: #14B8A6; }")
+        barcode_layout = QVBoxLayout(barcode_group)
+        barcode_hint = QLabel("הזינו ברקוד כדי לטעון נתוני מוצר. החיפוש ממלא את טופס הארוחה ואינו שומר אותה.")
+        barcode_hint.setWordWrap(True)
+        barcode_hint.setStyleSheet(hint_style)
+        barcode_layout.addWidget(barcode_hint)
         barcode_row = QHBoxLayout()
         self.barcode_input = QLineEdit()
-        self.barcode_input.setPlaceholderText("הזן ברקוד מספרי, לדוגמה 3017620422003")
+        self.barcode_input.setPlaceholderText("לדוגמה: 3017620422003")
         self.barcode_input.setStyleSheet(input_style)
-        self.btn_barcode = GlowButton("חפש ברקוד", base_color="#0F766E", hover_color="#0D9488", glow_color="#5EEAD4")
+        self.btn_barcode = GlowButton("טען מוצר", base_color="#0F766E", hover_color="#0D9488", glow_color="#5EEAD4")
         self.btn_barcode.clicked.connect(self.trigger_barcode_lookup)
         barcode_row.addWidget(self.barcode_input)
         barcode_row.addWidget(self.btn_barcode)
-        nut_layout.addLayout(barcode_row)
+        barcode_layout.addLayout(barcode_row)
+        layout.addWidget(barcode_group)
+
+        nutrition_group = QGroupBox("ארוחה")
+        nutrition_group.setStyleSheet(group_style + " QGroupBox { color: #10B981; }")
+        nut_layout = QVBoxLayout(nutrition_group)
+        nut_layout.setSpacing(10)
+
+        self.btn_camera_ai = GlowButton("ניתוח תמונת אוכל", base_color="#0F172A", hover_color="#1E293B", glow_color="#38BDF8", border_color="#06B6D4")
+        self.btn_camera_ai.clicked.connect(self.simulate_camera_ai_analysis)
+        nut_layout.addWidget(self.btn_camera_ai)
+
+        self.lbl_image_status = QLabel("")
+        self.lbl_image_status.setWordWrap(True)
+        self.lbl_image_status.setStyleSheet(hint_style)
+        nut_layout.addWidget(self.lbl_image_status)
+
+        self.btn_open_calculator = GlowButton("מחשבון קלוריות חיצוני", base_color="#F59E0B", hover_color="#D97706", glow_color="#FDE68A")
+        self.btn_open_calculator.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://zivzafrani.co.il/calorie-calculator/")))
+        nut_layout.addWidget(self.btn_open_calculator)
 
         nut_layout.addWidget(QLabel("שם המאכל / ארוחה:", styleSheet=label_style))
         self.meal_name_input = QLineEdit()
@@ -149,14 +167,14 @@ class DataEntryWindow(QWidget):
         row_macros.addLayout(v_pro)
         nut_layout.addLayout(row_macros)
 
-        self.btn_save_meal = GlowButton(" שמור ליומן (Save to Diary)", base_color="#059669", hover_color="#10B981", glow_color="#6EE7B7")
+        self.btn_save_meal = GlowButton("שמור ארוחה ליומן", base_color="#059669", hover_color="#10B981", glow_color="#6EE7B7")
         self.btn_save_meal.clicked.connect(self.trigger_meal_save)
         nut_layout.addWidget(self.btn_save_meal)
 
         layout.addWidget(nutrition_group)
 
-        weight_group = QGroupBox("עדכון מדדי משקל גוף")
-        weight_group.setStyleSheet("QGroupBox { font-weight: bold; color: #38BDF8; border: 1px solid #1E293B; border-radius: 8px; margin-top: 10px; padding-top: 15px; }")
+        weight_group = QGroupBox("משקל")
+        weight_group.setStyleSheet(group_style + " QGroupBox { color: #38BDF8; }")
         w_layout = QVBoxLayout(weight_group)
         w_layout.setSpacing(10)
 
@@ -172,13 +190,13 @@ class DataEntryWindow(QWidget):
         self.weight_date_input.setStyleSheet(input_style)
         w_layout.addWidget(self.weight_date_input)
 
-        self.btn_save_weight = GlowButton(" עדכן מדד משקל", base_color="#2563EB", hover_color="#3B82F6", glow_color="#93C5FD")
+        self.btn_save_weight = GlowButton("שמור משקל", base_color="#2563EB", hover_color="#3B82F6", glow_color="#93C5FD")
         self.btn_save_weight.clicked.connect(self.trigger_weight_save)
         w_layout.addWidget(self.btn_save_weight)
 
         layout.addWidget(weight_group)
 
-        self.btn_close = GlowButton("סגור חלון הזנה", base_color="#374151", hover_color="#4B5563", glow_color="#D1D5DB")
+        self.btn_close = GlowButton("סגור", base_color="#374151", hover_color="#4B5563", glow_color="#D1D5DB")
         self.btn_close.clicked.connect(self.close)
         layout.addWidget(self.btn_close)
 
@@ -221,13 +239,13 @@ class DataEntryWindow(QWidget):
             )
             return
 
-        self.btn_barcode.setText("מחפש...")
+        self.btn_barcode.setText("טוען מוצר...")
         self.btn_barcode.setEnabled(False)
         QApplication.processEvents()
 
         result = self.dashboard_view.presenter.lookup_barcode(barcode)
 
-        self.btn_barcode.setText("חפש ברקוד")
+        self.btn_barcode.setText("טען מוצר")
         self.btn_barcode.setEnabled(True)
 
         if result and result.get("status") == "success":
@@ -239,7 +257,7 @@ class DataEntryWindow(QWidget):
                 f"קלוריות (ל-100 גרם): {result.get('calories')} קק\"ל\n"
                 f"חלבון: {result.get('protein')} גרם\n"
                 f"מקור: {result.get('source', 'OpenFoodFacts')}\n\n"
-                "הערכים מולאו בטופס. שמירה ליומן מתבצעת רק אם תלחצ/י שמור."
+                "הערכים מולאו בטופס. שמירת הארוחה מתבצעת רק בלחיצה על שמור ארוחה ליומן."
             )
             show_styled_msgbox(self, "תוצאת OpenFoodFacts", text, QMessageBox.Icon.Information)
             return
@@ -256,9 +274,9 @@ class DataEntryWindow(QWidget):
         if not file_path:
             return
 
-        self.btn_camera_ai.setText("מנתח תמונה... ⏳")
+        self.btn_camera_ai.setText("מנתח תמונה...")
         self.btn_camera_ai.setEnabled(False)
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.lbl_image_status.setText("מנתח את התמונה... אפשר להמתין, המסך לא קפא.")
 
         self.vision_worker = VisionWorker(file_path, self.api_base_url)
         self.vision_worker.finished_signal.connect(self.on_vision_success)
@@ -266,9 +284,9 @@ class DataEntryWindow(QWidget):
         self.vision_worker.start()
 
     def on_vision_success(self, data: dict) -> None:
-        QApplication.restoreOverrideCursor()
-        self.btn_camera_ai.setText(" העלה תמונה לניתוח AI")
+        self.btn_camera_ai.setText("ניתוח תמונת אוכל")
         self.btn_camera_ai.setEnabled(True)
+        self.lbl_image_status.setText("")
 
         self.meal_name_input.setText(str(data.get("name", "לא זוהה")))
         self.meal_calories_input.setText(str(data.get("calories", "0")))
@@ -282,9 +300,9 @@ class DataEntryWindow(QWidget):
         )
 
     def on_vision_error(self, error_message: str) -> None:
-        QApplication.restoreOverrideCursor()
-        self.btn_camera_ai.setText(" העלה תמונה לניתוח AI")
+        self.btn_camera_ai.setText("ניתוח תמונת אוכל")
         self.btn_camera_ai.setEnabled(True)
+        self.lbl_image_status.setText("")
         show_styled_msgbox(
             self,
             "שגיאת זיהוי",
@@ -314,7 +332,7 @@ class DataEntryWindow(QWidget):
             return
 
         self.btn_save_meal.setEnabled(False)
-        self.btn_save_meal.setText("שומר... ⏳")
+        self.btn_save_meal.setText("שומר ארוחה...")
         presenter.log_meal(
             meal_name,
             calories,
@@ -325,16 +343,16 @@ class DataEntryWindow(QWidget):
 
     def on_meal_save_success(self) -> None:
         self.btn_save_meal.setEnabled(True)
-        self.btn_save_meal.setText(" שמור ליומן (Save to Diary)")
+        self.btn_save_meal.setText("שמור ארוחה ליומן")
         self.meal_name_input.clear()
         self.meal_calories_input.clear()
         self.meal_protein_input.clear()
         self.dashboard_view.refresh_data()
-        show_styled_msgbox(self, "הצלחה", "הארוחה נשמרה ב-Event Store.", QMessageBox.Icon.Information)
+        show_styled_msgbox(self, "הצלחה", "הארוחה נשמרה ביומן.", QMessageBox.Icon.Information)
 
     def on_meal_save_error(self, error_message: str) -> None:
         self.btn_save_meal.setEnabled(True)
-        self.btn_save_meal.setText(" שמור ליומן (Save to Diary)")
+        self.btn_save_meal.setText("שמור ארוחה ליומן")
         show_styled_msgbox(self, "שגיאה", f"שמירת הארוחה נכשלה:\n{error_message}", QMessageBox.Icon.Critical)
 
     def trigger_weight_save(self) -> None:
@@ -351,7 +369,13 @@ class DataEntryWindow(QWidget):
             show_styled_msgbox(self, "שגיאה", "משקל חייב להיות מספר.", QMessageBox.Icon.Warning)
             return
 
+        self.btn_save_weight.setEnabled(False)
+        self.btn_save_weight.setText("שומר משקל...")
+        QApplication.processEvents()
         success = self.dashboard_view.execute_remote_weight_save(weight, weight_date)
+        self.btn_save_weight.setEnabled(True)
+        self.btn_save_weight.setText("שמור משקל")
         if success:
             self.weight_value_input.clear()
             self.weight_date_input.setText(date.today().isoformat())
+            show_styled_msgbox(self, "הצלחה", "המשקל נשמר ביומן.", QMessageBox.Icon.Information)

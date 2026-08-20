@@ -3,8 +3,8 @@
 from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QMessageBox,
-    QPushButton, QWidget,
+    QFrame, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QLabel,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 class GlowButton(QPushButton):
@@ -26,6 +26,11 @@ class GlowButton(QPushButton):
                 background-color: {hover_color};
                 border: 1px solid {glow_color};
             }}
+            QPushButton:disabled {{
+                background-color: #334155;
+                color: #94A3B8;
+                border: 1px solid #1E293B;
+            }}
         """)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -43,6 +48,35 @@ class HoverCard(QFrame):
                 border: 1px solid #38BDF8;
             }}
         """)
+
+def make_page_header(title: str, subtitle: str = "") -> QWidget:
+    box = QWidget()
+    box.setStyleSheet("background: transparent; border: none;")
+    layout = QVBoxLayout(box)
+    layout.setContentsMargins(0, 0, 0, 8)
+    layout.setSpacing(6)
+
+    title_label = QLabel(title)
+    title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    title_label.setWordWrap(True)
+    title_label.setStyleSheet(
+        "font-size: 20px; font-weight: bold; color: #38BDF8; "
+        "background: transparent; border: none;"
+    )
+    layout.addWidget(title_label)
+
+    if subtitle:
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle_label.setWordWrap(True)
+        subtitle_label.setStyleSheet(
+            "font-size: 13px; color: #94A3B8; font-weight: normal; "
+            "background: transparent; border: none;"
+        )
+        layout.addWidget(subtitle_label)
+
+    return box
+
 
 def apply_neon_shadow(widget: QWidget, color_hex: str = "#000000", blur: int = 15, y_offset: int = 4):
     shadow = QGraphicsDropShadowEffect()

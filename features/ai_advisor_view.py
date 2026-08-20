@@ -3,11 +3,11 @@
 import requests
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
+    QFileDialog, QHBoxLayout, QLabel, QLineEdit, QScrollArea,
     QVBoxLayout, QWidget,
 )
 
-from features.ui_components import GlowButton
+from features.ui_components import GlowButton, make_page_header
 
 API_BASE_URL = "http://127.0.0.1:8000"
 
@@ -79,19 +79,15 @@ class AIAgentView(QWidget):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
-        back_button = GlowButton(" חזרה למרכז הבקרה", base_color="#1F2937", hover_color="#374151", glow_color="#9CA3AF")
+        back_button = GlowButton("חזרה ללוח הבקרה", base_color="#1F2937", hover_color="#374151", glow_color="#9CA3AF")
         back_button.clicked.connect(self.app_controller.show_dashboard_view)
         back_button.setFixedWidth(200)
         main_layout.addWidget(back_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-        header = QLabel(" Ollama RAG Container — סוכן ייעוץ תזונה וכושר חכם")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("""
-            font-size: 22px; font-weight: bold; color: #FFFFFF;
-            background-color: #111827; padding: 15px;
-            border: 2px solid #38BDF8; border-radius: 10px;
-        """)
-        main_layout.addWidget(header)
+        main_layout.addWidget(make_page_header(
+            "יועץ תזונה וכושר",
+            "כתבו שאלה בעברית. כדי לשאול על תמונת אוכל: כתבו את השאלה ואז לחצו על צרף תמונה.",
+        ))
 
         self.chat_scroll = QScrollArea()
         self.chat_scroll.setWidgetResizable(True)
@@ -110,17 +106,25 @@ class AIAgentView(QWidget):
 
         main_layout.addWidget(self.chat_scroll)
 
-        self.add_ai_bubble("שלום! מערכת ה-RAG עלתה בהצלחה. אני FitTrack AI. את יכולה לשאול אותי שאלות רגילות, או ללחוץ על '📷 תמונה' כדי שאזהה עבורך מנות וארוחות!")
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("color: #7DD3FC; font-size: 13px; background: transparent; border: none;")
+        main_layout.addWidget(self.status_label)
+
+        self.add_ai_bubble(
+            "שלום, אני FitTrack AI. אפשר לשאול אותי על תזונה וכושר, "
+            "או לכתוב שאלה ולצרף תמונת אוכל כדי שאענה לפי מה שבתמונה."
+        )
 
         input_layout = QHBoxLayout()
         input_layout.setSpacing(10)
 
-        self.btn_upload = GlowButton("📷 תמונה", base_color="#4F46E5", hover_color="#4338CA", glow_color="#818CF8")
+        self.btn_upload = GlowButton("צרף תמונה", base_color="#4F46E5", hover_color="#4338CA", glow_color="#818CF8")
         self.btn_upload.clicked.connect(self.upload_chat_image)
         input_layout.addWidget(self.btn_upload)
 
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("הקלד/י שאלה ליועץ ה-AI כאן...")
+        self.chat_input.setPlaceholderText("כתבו שאלה, ואם תרצו — צרפו תמונה")
         self.chat_input.setStyleSheet("""
             QLineEdit {
                 padding: 15px; border: 1px solid #1E293B; border-radius: 10px;
@@ -187,7 +191,7 @@ class AIAgentView(QWidget):
         self.btn_send.setEnabled(False)
         self.btn_upload.setEnabled(False)
         self.btn_send.setText("הסוכן חושב...")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.status_label.setText("מכין תשובה... אפשר להמתין, המסך לא קפא.")
 
         username = getattr(self.app_controller.presenter, 'active_user', 'Guest')
         self.worker = AIWorker(user_text, username, self.api_base_url)
@@ -209,7 +213,7 @@ class AIAgentView(QWidget):
         self.btn_send.setEnabled(False)
         self.btn_upload.setEnabled(False)
         self.btn_send.setText("מנתח תמונה...")
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.status_label.setText("מנתח את התמונה... אפשר להמתין, המסך לא קפא.")
 
         prompt = user_question or "אנא נתח את המאכל שבתמונה"
         self.chat_vision_worker = ChatVisionWorker(file_path, self.api_base_url, prompt)
@@ -217,10 +221,10 @@ class AIAgentView(QWidget):
         self.chat_vision_worker.start()
 
     def on_ai_response_received(self, response_text: str):
-        QApplication.restoreOverrideCursor()
         self.btn_send.setEnabled(True)
         self.btn_upload.setEnabled(True)
         self.btn_send.setText("שאל את הסוכן")
+        self.status_label.setText("")
         self.add_ai_bubble(response_text)
 
     def _scroll_to_bottom(self):
