@@ -1,3 +1,5 @@
+"""MVP presenter coordinating desktop views with the FitTrackAI HTTP API."""
+
 import requests
 from PySide6.QtCore import QObject, QThread, Signal
 

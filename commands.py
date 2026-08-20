@@ -1,13 +1,14 @@
-from datetime import date
-from typing import Any, Dict, List, Optional
+"""CQRS write side: validate commands and append user activity events."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import date
+from typing import Dict
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.gateway import ExternalServicesGateway
-from backend.models import User, UserEvent
+from backend.models import UserEvent
 
 router = APIRouter(prefix="/commands", tags=["Commands"])
 
@@ -32,7 +33,7 @@ class WorkoutCreate(BaseModel):
 
 
 def append_user_event(db: Session, event: UserEvent) -> None:
-    """Event Sourcing: append-only immutable event write."""
+    """Append a user activity event; command handlers never update prior events."""
     db.add(event)
     db.commit()
     db.refresh(event)

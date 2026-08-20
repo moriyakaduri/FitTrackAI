@@ -1,16 +1,18 @@
-from typing import Any, Dict, List, Optional
+"""CQRS read side: build dashboard projections without mutating events."""
+
+from typing import Any, Dict, List
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.gateway import ExternalServicesGateway
 from backend.models import User, UserEvent, NutritionFact, Article
 
 router = APIRouter(prefix="/queries", tags=["Queries"])
 
 def get_nutrition_summary(username: str, db: Session) -> Dict[str, Any]:
+    """Fold the append-only user event log into the dashboard read model."""
     user_profile = db.query(User).filter(User.username == username).first()
     if not user_profile:
         user_profile = User(

@@ -1,3 +1,5 @@
+"""Desktop composition shell and dashboard view for the feature-sliced MVP UI."""
+
 import sys
 import random
 import os
