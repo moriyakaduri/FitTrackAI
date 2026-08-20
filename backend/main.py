@@ -155,6 +155,15 @@ class ExternalServicesGateway:
         ניתוח של תמונת אוכל. שלב ראשון מזהה באנגלית (מניעת תקלות במודל ראייה), 
         בשלב השני הנתונים מתורגמים לעברית תקנית דרך מודל השפה.
         """
+        def estimated_int(value: Any, field_name: str) -> int:
+            match = re.search(r"-?\d+(?:\.\d+)?", str(value))
+            if not match:
+                raise ValueError(f"חסר ערך מספרי עבור {field_name}")
+            number = int(float(match.group()))
+            if number < 0:
+                raise ValueError(f"ערך לא תקין עבור {field_name}")
+            return number
+
         # שלב 1: זיהוי באנגלית (מודל Vision פשוט מזהה יותר טוב באנגלית)
         vision_prompt = (
             "Analyze this food image accurately. Identify the actual food in the image.\n"
@@ -226,28 +235,37 @@ Output Format:
             # חילוץ סופי
             parsed_data = extract_json_from_ai_response(hebrew_json_str)
 
-            final_name = parsed_data.get("name", "מנה לא מזוהה")
-            if "name" in final_name or "e.g." in final_name:
-                 final_name = "מנה (יש לעדכן ידנית)"
+            final_name = str(parsed_data.get("name", "")).strip()
+            if (
+                not final_name
+                or "name" in final_name.lower()
+                or "e.g." in final_name.lower()
+                or not re.search(r"[\u0590-\u05ff]", final_name)
+            ):
+                raise ValueError("המודל לא החזיר שם מנה מזוהה בעברית")
+
+            ingredients = parsed_data.get("ingredients", [])
+            if not isinstance(ingredients, list):
+                ingredients = []
+
+            calories = estimated_int(parsed_data.get("calories"), "קלוריות")
+            protein = estimated_int(parsed_data.get("protein"), "חלבון")
+            fat = estimated_int(parsed_data.get("fat"), "שומן")
+            carbs = estimated_int(parsed_data.get("carbs"), "פחמימות")
+            if calories == 0:
+                raise ValueError("המודל לא החזיר הערכת קלוריות שימושית")
 
             return {
                 "name": final_name,
-                "ingredients": parsed_data.get("ingredients", []),
-                "calories": int(parsed_data.get("calories", 0)),
-                "protein": int(parsed_data.get("protein", 0)),
-                "fat": int(parsed_data.get("fat", 0)),
-                "carbs": int(parsed_data.get("carbs", 0)),
+                "ingredients": [str(item) for item in ingredients if str(item).strip()],
+                "calories": calories,
+                "protein": protein,
+                "fat": fat,
+                "carbs": carbs,
             }
         except Exception as error:
             print(f"Error parsing vision JSON: {error}")
-            return {
-                "name": "שגיאה בזיהוי המנה",
-                "ingredients": [],
-                "calories": 0,
-                "protein": 0,
-                "fat": 0,
-                "carbs": 0,
-            }
+            raise ValueError(f"לא ניתן לזהות את המנה באופן אמין: {error}") from error
 
     @classmethod
     def get_ai_consultation(cls, system_prompt: str) -> str:
@@ -283,50 +301,20 @@ Output Format:
     @classmethod
     def analyze_chat_image(cls, image_base64: str, prompt: str, db_context: str) -> str:
         """
-        ניתוח תמונת צ'אט: חילוץ נתונים מהיר באנגלית 
-        וניסוח קצר, ממוקד וענייני בעברית דרך DictaLM.
+        ניתוח תמונת צ'אט באמצעות אותו פלט מובנה ואמין של מסך הזנת הארוחה.
         """
         try:
-            vision_prompt = (
-                f'Analyze this food image for a nutrition assistant. User question: "{prompt}". '
-                "Identify dish name, visible ingredients, and estimate numerical macros (Protein, Fat, Carbohydrates, Calories)."
+            result = cls.analyze_food_image(image_base64)
+            ingredients = ", ".join(result["ingredients"]) or "לא זוהו רכיבים נוספים"
+            return (
+                f"1. <b>שם המנה:</b> {result['name']}<br>"
+                f"2. <b>רכיבים גלויים:</b> {ingredients}<br>"
+                "3. <b>ערכים תזונתיים משוערים (לכל המנה):</b><br>"
+                f"• קלוריות: {result['calories']} קק\"ל | "
+                f"חלבון: {result['protein']} גרם | "
+                f"שומן: {result['fat']} גרם | "
+                f"פחמימות: {result['carbs']} גרם"
             )
-
-            vision_response = requests.post(
-                cls.OLLAMA_URL,
-                json={
-                    "model": cls.OLLAMA_VISION_MODEL,
-                    "prompt": vision_prompt,
-                    "stream": False,
-                    "images": [image_base64],
-                    "options": {"temperature": 0.0},
-                    "keep_alive": "10m",
-                },
-                timeout=cls.OLLAMA_TIMEOUT,
-            )
-            vision_response.raise_for_status()
-            english_analysis = vision_response.json().get("response", "")
-
-            translation_prompt = f"""
-אתה יועץ תזונה במערכת FitTrack AI.
-שאלת המשתמש: "{prompt}"
-ניתוח התמונה (באנגלית): {english_analysis}
-נתוני רקע מהמערכת (RAG): {db_context}
-
-הנחיות קשיחות לפלט (אורך כולל: גג 6-8 שורות בלבד):
-1. כתוב בעברית בלבד. ללא אנגלית כלל.
-2. אל תציג הקדמות, ברכות, הסברים על וויטמינים, ואל תרשום דיסקליימרים/הסתייגויות.
-3. הצג אך ורק את הפורמט המדויק הבא:
-
-1. **שם המנה:** [שם קצר ומדויק בעברית]
-2. **רכיבים גלויים:** [רשימה קצרה מופרדת בפסיקים בלבד]
-3. **ערכים תזונתיים משוערים (לכל המנה):**
-• קלוריות: X קק"ל | חלבון: X גרם | שומן: X גרם | פחמימות: X גרם
-"""
-            return cls.get_ai_consultation(translation_prompt)
-
-        except requests.exceptions.Timeout:
-            return "<b>שגיאה:</b><br>שרת Ollama עמוס מדי וההמתנה חרגה מזמן היעד."
         except Exception as error:
             return f"<b>שגיאה בניתוח התמונה:</b><br>{error}"
 
@@ -430,7 +418,7 @@ def analyze_food(request: AIMessageRequest, db: Session = Depends(get_db)) -> Di
 
 
 @app.post("/ai/analyze-image")
-async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
+async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, Any]:
     try:
         contents = await file.read()
         ExternalServicesGateway.upload_image_to_cloudinary(contents, folder="fittrack_food")
@@ -443,11 +431,14 @@ async def analyze_image_route(file: UploadFile = File(...)) -> Dict[str, str]:
             "name": str(result.get("name", "לא זוהה")),
             "calories": str(int(result.get("calories", 0) or 0)),
             "protein": str(int(result.get("protein", 0) or 0)),
+            "ingredients": result.get("ingredients", []),
+            "fat": str(int(result.get("fat", 0) or 0)),
+            "carbs": str(int(result.get("carbs", 0) or 0)),
         }
     except (ValueError, json.JSONDecodeError) as parse_error:
         return {
             "status": "error",
-            "message": f"לא ניתן לחלץ JSON מה-AI: {parse_error}",
+            "message": f"ניתוח התמונה נכשל: {parse_error}",
         }
     except Exception as error:
         return {"status": "error", "message": str(error)}
