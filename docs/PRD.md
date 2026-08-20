@@ -4,11 +4,13 @@
 
 FitTrackAI is a Hebrew right-to-left desktop application for personal nutrition
 and fitness tracking. It combines daily data entry, cloud persistence,
-visual dashboards, database-backed retrieval, and local generative AI.
+visual dashboards, database-backed retrieval, barcode product lookup, and
+local generative AI.
 
 The submission demonstrates a complete desktop-to-API flow rather than a
 production medical platform. AI nutrition values are estimates and remain
-editable before a user saves them.
+editable before a user saves them. External barcode results also populate the
+form only; saving a meal is always an explicit user action.
 
 ## 2. Intended users
 
@@ -31,6 +33,8 @@ editable before a user saves them.
 ### Tracking and retrieval
 
 - Search nutrition facts and article summaries stored in SQL Server.
+- Look up a packaged product by barcode through OpenFoodFacts and populate the
+  meal form. The lookup must not write to the database.
 - Record meals, body weight, and workouts.
 - Store activity as append-only `UserEvents`.
 - Retrieve meal details by event identifier.
@@ -47,7 +51,7 @@ editable before a user saves them.
 
 ### Food image analysis
 
-- Accept a local food image from the desktop client.
+- Accept a local food image from the data-entry window.
 - Upload the original image to Cloudinary and return its HTTPS `secure_url`.
 - Compress a copy locally for AI inference.
 - Use LLaVA to identify the food and estimate nutrition.
@@ -55,7 +59,17 @@ editable before a user saves them.
 - Reject unreliable or zero-calorie model results instead of presenting them
   as successful meals.
 - Populate editable meal fields; saving remains a separate user action.
-- Support the same structured result in the AI chat image flow.
+
+### Image chat
+
+- Accept a local food image together with the user's typed question from the
+  AI advisor.
+- Upload the original image to Cloudinary and return its HTTPS `secure_url`.
+- Use LLaVA to inspect the image in light of that question.
+- Include relevant database/RAG context in the follow-up prompt.
+- Use DictaLM to produce a Hebrew answer about the image and the question.
+- Image chat is a question-answering flow, not a duplicate of structured
+  meal-field extraction.
 
 ### Visualization
 
@@ -71,21 +85,29 @@ editable before a user saves them.
   AI advisor, data entry, trends, and motivation, composed by
   `FitTrackApplication`.
 - **MVP:** `FitTrackPresenter` coordinates primary view actions and the HTTP
-  API. AI workers call dedicated AI endpoints directly to keep long inference
-  off the UI thread.
+  API. Login and meal saving use presenter-owned background workers so the GUI
+  does not freeze. Workers are execution helpers, not a replacement for the
+  presenter. Dedicated AI workers call `/ai/*` directly because inference is
+  long-running. Weight and workout saves currently call the presenter
+  synchronously.
 - **Backend:** FastAPI with separate command and query route modules.
 - **CQRS interpretation:** `/commands/*` routes append activity; `/queries/*`
-  routes read and build projections. Both sides intentionally share one
-  database and ORM model set.
+  routes read projections, local search, and barcode lookup. Both sides
+  intentionally share one database and ORM model set. No command bus or second
+  database is claimed.
 - **Event Sourcing interpretation:** meals, weights, and workouts use an
-  append-only user activity event log. Reference tables such as users,
-  articles, and nutrition facts use conventional relational persistence.
-- **Database:** cloud-hosted Microsoft SQL Server through SQLAlchemy and ODBC.
+  append-only user activity event log. Users, articles, and nutrition facts
+  remain conventional relational tables.
+- **Database:** cloud-hosted Microsoft SQL Server on Somee, accessed with
+  SQLAlchemy and `pyodbc`.
 - **Gateway:** `backend.gateway.ExternalServicesGateway` is the single boundary
-  for Ollama, Cloudinary, and optional OpenFoodFacts access.
+  for Ollama, Cloudinary, and OpenFoodFacts.
 - **AI runtime:** official Ollama Docker image with persistent model storage.
+  Compose requests NVIDIA GPU access when the host provides it. CPU execution
+  remains valid and is slower.
 - **Models:** `aminadaven/dictalm2.0-instruct:q4_k_m` and `llava`.
 - **Cloud media:** Cloudinary uploads configured only by environment variables.
+- **External nutrition:** OpenFoodFacts barcode lookup from Data Entry.
 
 Detailed diagrams and pattern evidence are in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -113,9 +135,10 @@ credential belongs in source control.
 
 ## 7. Quality and operational requirements
 
-- Long API and AI calls run outside the Qt UI thread.
-- Model and provider failures return explicit error states.
+- Long API and AI calls that would freeze the GUI run outside the Qt UI thread.
+- Model, barcode, and provider failures return explicit error states.
 - Docker model storage survives container replacement.
+- GPU offload is best-effort and may be partial, depending on host VRAM.
 - The GUI remains usable when optional satellite windows are opened or closed.
 - Database write tests use identifiable append-only records and never delete
   existing user data.
@@ -126,12 +149,15 @@ credential belongs in source control.
 The product is accepted for submission when:
 
 - FastAPI and the PySide6 shell start on Python 3.10.
-- Login, search, details, dashboard queries, and navigation work.
+- Login, search, barcode lookup, details, dashboard queries, and navigation
+  work.
 - Meal, weight, and workout commands each append one event and appear in the
   dashboard projection.
 - DictaLM returns a real Hebrew advisor response with database context.
-- LLaVA returns structured Hebrew food analysis through both image endpoints.
+- Data-entry image analysis returns structured Hebrew meal fields.
+- Image chat answers two different questions about the same image differently.
 - Both image endpoints return fetchable Cloudinary HTTPS URLs.
+- A known barcode returns real OpenFoodFacts product data without auto-save.
 - Ollama starts from the repository Compose configuration and lists both
   required models.
 
